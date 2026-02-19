@@ -3,6 +3,7 @@ name: CI
 on:
   pull_request:
     branches:
+      - main
       - staging
   push:
     branches:
@@ -16,6 +17,9 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  MIN_COVERAGE: "80"
+
 jobs:
   rust-ci:
     name: Rust CI
@@ -27,13 +31,32 @@ jobs:
       - name: Setup stable Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          components: rustfmt, clippy
+          components: rustfmt, clippy, llvm-tools-preview
 
       - name: Cache Cargo registry + target
         uses: Swatinem/rust-cache@v2
         with:
           cache-targets: true
           cache-all-crates: true
+
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
+
+      - name: Enforce PR source branch policy
+        if: ${{ github.event_name == 'pull_request' }}
+        shell: bash
+        run: |
+          if [[ "${{ github.base_ref }}" == "staging" && "${{ github.head_ref }}" != "ci-cd" ]]; then
+            echo "::error::Only pull requests from 'ci-cd' are allowed to target 'staging'."
+            echo "::error::Current source branch: '${{ github.head_ref }}'."
+            exit 1
+          fi
+
+          if [[ "${{ github.base_ref }}" == "main" && "${{ github.head_ref }}" != "staging" ]]; then
+            echo "::error::Only pull requests from 'staging' are allowed to target 'main'."
+            echo "::error::Current source branch: '${{ github.head_ref }}'."
+            exit 1
+          fi
 
       - name: Verify Cargo.lock is up-to-date
         shell: bash
@@ -47,3 +70,32 @@ jobs:
 
       - name: Unit tests
         run: cargo test --workspace --all-targets --all-features --locked
+
+      - name: Coverage gate (80%)
+        shell: bash
+        run: |
+          cargo llvm-cov clean --workspace
+          cargo llvm-cov \
+            --workspace \
+            --all-features \
+            --lib \
+            --tests \
+            --json \
+            --summary-only \
+            --output-path coverage-summary.json \
+            --ignore-filename-regex "main.rs" \
+            --fail-under-lines "${MIN_COVERAGE}"
+
+          coverage_pct="$(python3 - <<'PY'
+import json
+with open("coverage-summary.json", "r", encoding="utf-8") as f:
+    data = json.load(f)
+print(data["data"][0]["totals"]["lines"]["percent"])
+PY
+)"
+          if [[ -z "${coverage_pct}" ]]; then
+            echo "::error::Failed to parse coverage percentage."
+            exit 1
+          fi
+
+          echo "Coverage is ${coverage_pct}% (minimum ${MIN_COVERAGE}%)."

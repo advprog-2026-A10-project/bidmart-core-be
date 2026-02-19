@@ -1,22 +1,23 @@
-name: Staging Branch Guard
+name: Main Branch Guard
 
 on:
   pull_request_target:
     branches:
-      - staging
+      - main
 
 permissions:
   contents: read
 
 jobs:
-  staging-branch-guard:
+  main-branch-guard:
+    name: Main Branch Guard
     runs-on: ubuntu-latest
     steps:
-      - name: Allow only ci-cd PRs into staging
+      - name: Allow only staging PRs into main
         shell: bash
         run: |
-          if [[ "${{ github.head_ref }}" != "ci-cd" ]]; then
-            echo "::error::Only PRs from 'ci-cd' can target 'staging'."
+          if [[ "${{ github.head_ref }}" != "staging" ]]; then
+            echo "::error::Only PRs from 'staging' can target 'main'."
             echo "::error::Current source branch: '${{ github.head_ref }}'."
             exit 1
           fi
