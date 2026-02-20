@@ -28,20 +28,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup stable Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy, llvm-tools-preview
-
-      - name: Cache Cargo registry and target
-        uses: Swatinem/rust-cache@v2
-        with:
-          cache-targets: true
-          cache-all-crates: true
-
-      - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@cargo-llvm-cov
-
       - name: Enforce PR source branch policy
         if: ${{ github.event_name == 'pull_request' }}
         shell: bash
@@ -56,19 +42,63 @@ jobs:
             exit 1
           fi
 
+      - name: Detect Cargo manifest
+        id: manifest
+        shell: bash
+        run: |
+          manifest_path="$(find . -name Cargo.toml -not -path './target/*' | head -n 1)"
+          if [[ -z "${manifest_path}" ]]; then
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::No Cargo.toml found in this branch. Rust checks are skipped."
+            exit 0
+          fi
+
+          manifest_path="${manifest_path#./}"
+          manifest_dir="$(dirname "${manifest_path}")"
+          echo "found=true" >> "$GITHUB_OUTPUT"
+          echo "manifest_path=${manifest_path}" >> "$GITHUB_OUTPUT"
+          echo "manifest_dir=${manifest_dir}" >> "$GITHUB_OUTPUT"
+
+      - name: Setup stable Rust
+        if: ${{ steps.manifest.outputs.found == 'true' }}
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy, llvm-tools-preview
+
+      - name: Cache Cargo registry and target
+        if: ${{ steps.manifest.outputs.found == 'true' }}
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-targets: true
+          cache-all-crates: true
+
+      - name: Install cargo-llvm-cov
+        if: ${{ steps.manifest.outputs.found == 'true' }}
+        uses: taiki-e/install-action@cargo-llvm-cov
+
       - name: Verify Cargo.lock is in sync
+        if: ${{ steps.manifest.outputs.found == 'true' }}
+        working-directory: ${{ steps.manifest.outputs.manifest_dir }}
         run: cargo check --locked
 
       - name: Rustfmt check
+        if: ${{ steps.manifest.outputs.found == 'true' }}
+        working-directory: ${{ steps.manifest.outputs.manifest_dir }}
         run: cargo fmt --all -- --check
 
       - name: Clippy (deny warnings)
+        if: ${{ steps.manifest.outputs.found == 'true' }}
+        working-directory: ${{ steps.manifest.outputs.manifest_dir }}
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
       - name: Unit tests
+        if: ${{ steps.manifest.outputs.found == 'true' }}
+        working-directory: ${{ steps.manifest.outputs.manifest_dir }}
         run: cargo test --workspace --all-targets --all-features --locked
 
       - name: Coverage gate (>= 80%)
+        if: ${{ steps.manifest.outputs.found == 'true' }}
+        working-directory: ${{ steps.manifest.outputs.manifest_dir }}
         run: |
           cargo llvm-cov clean --workspace
           cargo llvm-cov \
@@ -79,4 +109,10 @@ jobs:
             --ignore-filename-regex "main.rs"
 
       - name: Release build
+        if: ${{ steps.manifest.outputs.found == 'true' }}
+        working-directory: ${{ steps.manifest.outputs.manifest_dir }}
         run: cargo build --workspace --all-features --release --locked
+
+      - name: Report skipped Rust checks
+        if: ${{ steps.manifest.outputs.found != 'true' }}
+        run: echo "Rust gates skipped because no Cargo.toml exists in this branch."
