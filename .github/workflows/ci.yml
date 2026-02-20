@@ -1,0 +1,82 @@
+name: Rust CI
+
+on:
+  pull_request:
+    branches:
+      - staging
+      - main
+  push:
+    branches:
+      - ci-cd
+      - staging
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  MIN_COVERAGE: "80"
+
+jobs:
+  rust-ci:
+    name: Rust CI Gates
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup stable Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy, llvm-tools-preview
+
+      - name: Cache Cargo registry and target
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-targets: true
+          cache-all-crates: true
+
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
+
+      - name: Enforce PR source branch policy
+        if: ${{ github.event_name == 'pull_request' }}
+        shell: bash
+        run: |
+          if [[ "${{ github.base_ref }}" == "staging" && "${{ github.head_ref }}" != "ci-cd" ]]; then
+            echo "::error::Only pull requests from 'ci-cd' can target 'staging'."
+            exit 1
+          fi
+
+          if [[ "${{ github.base_ref }}" == "main" && "${{ github.head_ref }}" != "staging" ]]; then
+            echo "::error::Only pull requests from 'staging' can target 'main'."
+            exit 1
+          fi
+
+      - name: Verify Cargo.lock is in sync
+        run: cargo check --locked
+
+      - name: Rustfmt check
+        run: cargo fmt --all -- --check
+
+      - name: Clippy (deny warnings)
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+      - name: Unit tests
+        run: cargo test --workspace --all-targets --all-features --locked
+
+      - name: Coverage gate (>= 80%)
+        run: |
+          cargo llvm-cov clean --workspace
+          cargo llvm-cov \
+            --workspace \
+            --all-features \
+            --summary-only \
+            --fail-under-lines "${MIN_COVERAGE}" \
+            --ignore-filename-regex "main.rs"
+
+      - name: Release build
+        run: cargo build --workspace --all-features --release --locked
