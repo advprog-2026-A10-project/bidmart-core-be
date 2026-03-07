@@ -1,9 +1,9 @@
 use axum::Router;
 
 pub mod controllers;
+pub mod middleware;
 pub mod repositories;
 pub mod services;
-pub mod middleware;
 
 use sqlx::postgres::PgPool;
 
@@ -15,5 +15,5 @@ pub struct AppState {
 // Placeholder function - TODO: implement router
 pub fn create_router(_state: AppState) -> Router {
     Router::new()
-        // TODO: Add routes as controllers are implemented
+    // TODO: Add routes as controllers are implemented
 }
