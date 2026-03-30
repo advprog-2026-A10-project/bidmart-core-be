@@ -10,6 +10,7 @@ use infrastructure::database::create_pool;
 use infrastructure::logger::init_tracer;
 use modules::example::infrastructure::create_router;
 use modules::example::infrastructure::AppState;
+use modules::wallet::infrastructure::create_router as create_wallet_router;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -19,9 +20,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let _pool = create_pool(&config.database_url).await?;
 
-    let app_state = AppState { _pool };
+    let app_state = AppState { _pool: _pool.clone() };
 
-    let router = create_router(app_state);
+    let router = create_router(app_state).merge(create_wallet_router(_pool));
 
     let address = format!("{}:{}", config.server_host, config.server_port);
     let listener = TcpListener::bind(&address).await?;
