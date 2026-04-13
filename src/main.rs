@@ -8,8 +8,7 @@ use tokio::net::TcpListener;
 use infrastructure::config::AppConfig;
 use infrastructure::database::create_pool;
 use infrastructure::logger::init_tracer;
-use modules::example::infrastructure::create_router;
-use modules::example::infrastructure::AppState;
+use modules::order::{create_router, infrastructure::create_app_state};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -17,9 +16,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let config = AppConfig::new().expect("Failed to load configuration from .env file");
 
-    let _pool = create_pool(&config.database_url).await?;
+    let pool = create_pool(&config.database_url).await?;
 
-    let app_state = AppState { _pool };
+    let app_state = create_app_state(pool);
 
     let router = create_router(app_state);
 
