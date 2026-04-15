@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Notification {
     pub id: NotificationId,
     pub order_id: Option<OrderId>,
@@ -18,6 +19,7 @@ pub struct Notification {
 pub type NotificationId = Uuid;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum NotificationChannel {
     Email,
     Push,
@@ -26,15 +28,21 @@ pub enum NotificationChannel {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum NotificationType {
+    #[serde(rename = "BidPlaced")]
     BidPlaced,
+    #[serde(rename = "WinnerDetermined")]
     WinnerDetermined,
+    #[serde(rename = "OrderUpdate")]
     OrderUpdate,
+    #[serde(rename = "System")]
     System,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct NotificationEventPayload {
     pub order_id: Option<OrderId>,
+    #[serde(rename = "type")]
     pub notification_type: NotificationType,
     pub title: String,
     pub body: String,

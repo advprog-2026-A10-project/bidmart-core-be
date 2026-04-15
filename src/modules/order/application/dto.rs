@@ -39,7 +39,7 @@ pub struct GetNotificationDto {
 }
 
 pub struct MarkNotificationDto {
-    pub notification_id: uuid::Uuid,
+    pub notification_id: Uuid,
     pub actor_id: String,
 }
 

@@ -10,8 +10,8 @@ pub mod update_shipping;
 
 pub use confirm_order::ConfirmOrderUseCase;
 pub use create_dispute::CreateDisputeUseCase;
-pub use get_order::GetOrderUseCase;
 pub use get_notification::GetNotificationUseCase;
+pub use get_order::GetOrderUseCase;
 pub use list_notifications::ListNotificationsUseCase;
 pub use list_orders::ListOrdersUseCase;
 pub use mark_notification::MarkNotificationUseCase;

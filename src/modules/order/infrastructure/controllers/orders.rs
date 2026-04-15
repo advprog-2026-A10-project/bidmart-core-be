@@ -6,6 +6,7 @@ use axum::{
     Json, Router,
 };
 use serde::Deserialize;
+use serde::Serialize;
 use uuid::Uuid;
 
 use crate::modules::order::application::dto::{
@@ -20,37 +21,59 @@ use crate::modules::order::infrastructure::AppState;
 
 #[derive(Deserialize)]
 struct ListOrdersQuery {
-    role: Option<String>,
+    #[serde(rename = "userId")]
+    user_id: Option<String>,
     stage: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct OrdersListResponse<T> {
+    data: T,
 }
 
 pub fn router() -> Router<AppState> {
     Router::new()
-        .route("/orders", get(list_orders))
+        .route("/orders", get(list_buyer_orders))
         .route("/orders/:order_id", get(get_order))
         .route("/orders/:order_id/confirm", post(confirm_order))
         .route("/orders/:order_id/dispute/new", post(create_dispute))
-        .route("/seller/orders", get(list_orders))
+        .route("/seller/orders", get(list_seller_orders))
         .route("/seller/orders/:order_id", get(get_order))
         .route("/seller/orders/:order_id/shipping", patch(update_shipping))
 }
 
-async fn list_orders(
+async fn list_buyer_orders(
     State(state): State<AppState>,
     Query(query): Query<ListOrdersQuery>,
+) -> impl IntoResponse {
+    list_orders_by_role(state, query, "buyer").await
+}
+
+async fn list_seller_orders(
+    State(state): State<AppState>,
+    Query(query): Query<ListOrdersQuery>,
+) -> impl IntoResponse {
+    list_orders_by_role(state, query, "seller").await
+}
+
+async fn list_orders_by_role(
+    state: AppState,
+    query: ListOrdersQuery,
+    role: &str,
 ) -> impl IntoResponse {
     let stage = query.stage.as_deref().and_then(parse_stage);
 
     let dto = ListOrdersDto {
-        user_id: None,
-        role: query.role.unwrap_or_else(|| "buyer".to_string()),
+        user_id: query.user_id,
+        role: role.to_string(),
         stage,
     };
 
     let use_case = ListOrdersUseCase::new(state.order_repo.clone());
 
     match use_case.execute(dto).await {
-        Ok(orders) => (StatusCode::OK, Json(orders)).into_response(),
+        Ok(orders) => (StatusCode::OK, Json(OrdersListResponse { data: orders })).into_response(),
         Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "Unable to list orders").into_response(),
     }
 }
@@ -59,8 +82,13 @@ async fn get_order(
     State(state): State<AppState>,
     Path(order_id): Path<String>,
 ) -> impl IntoResponse {
-    let order_id = Uuid::parse_str(&order_id).unwrap_or_default();
-    let dto = GetOrderDto { order_id };
+    let parsed_id = match Uuid::parse_str(&order_id) {
+        Ok(value) => value,
+        Err(_) => return (StatusCode::BAD_REQUEST, "Invalid order id").into_response(),
+    };
+    let dto = GetOrderDto {
+        order_id: parsed_id,
+    };
 
     let use_case = GetOrderUseCase::new(state.order_repo.clone());
 

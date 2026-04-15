@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Order {
     pub id: OrderId,
     pub lot: String,
@@ -31,10 +32,16 @@ pub enum OrderStage {
 #[derive(Clone, Debug, Serialize, Deserialize, sqlx::Type, PartialEq)]
 #[sqlx(type_name = "order_status", rename_all = "snake_case")]
 pub enum OrderStatus {
+    #[serde(rename = "Awaiting Payment")]
     AwaitingPayment,
+    #[serde(rename = "In Transit")]
     InTransit,
+    #[serde(rename = "Needs Confirmation")]
     NeedsConfirmation,
+    #[serde(rename = "Delivered")]
     Delivered,
+    #[serde(rename = "Dispute Closed")]
     DisputeClosed,
+    #[serde(rename = "Dispute Alert")]
     DisputeAlert,
 }

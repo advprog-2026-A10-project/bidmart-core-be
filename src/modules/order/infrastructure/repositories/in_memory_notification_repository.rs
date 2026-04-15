@@ -23,12 +23,30 @@ impl InMemoryNotificationRepository {
 impl NotificationRepository for Arc<InMemoryNotificationRepository> {
     async fn list_notifications(
         &self,
-        _user_id: Option<&str>,
-        _limit: Option<u32>,
-        _unread_only: bool,
+        user_id: Option<&str>,
+        limit: Option<u32>,
+        unread_only: bool,
     ) -> Result<Vec<Notification>, NotificationError> {
         let notifications = self.notifications.lock().await;
-        Ok(notifications.clone())
+        let iter = notifications.iter().filter(|notification| {
+            let user_match = user_id.map_or(true, |id| {
+                notification
+                    .metadata
+                    .as_ref()
+                    .and_then(|metadata| metadata.get("userId"))
+                    .and_then(|value| value.as_str())
+                    .map_or(false, |meta_id| meta_id == id)
+            });
+            let unread_match = !unread_only || notification.read_at.is_none();
+            user_match && unread_match
+        });
+
+        let result: Vec<Notification> = match limit {
+            Some(limit_value) => iter.take(limit_value as usize).cloned().collect(),
+            None => iter.cloned().collect(),
+        };
+
+        Ok(result)
     }
 
     async fn get_notification(

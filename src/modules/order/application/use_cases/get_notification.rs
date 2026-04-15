@@ -10,7 +10,13 @@ impl<T: NotificationRepository> GetNotificationUseCase<T> {
         Self { repository }
     }
 
-    pub async fn execute(&self, dto: GetNotificationDto) -> Result<crate::modules::order::domain::entities::Notification, crate::modules::order::domain::errors::NotificationError> {
+    pub async fn execute(
+        &self,
+        dto: GetNotificationDto,
+    ) -> Result<
+        crate::modules::order::domain::entities::Notification,
+        crate::modules::order::domain::errors::NotificationError,
+    > {
         self.repository.get_notification(dto.notification_id).await
     }
 }

@@ -21,13 +21,17 @@ impl InMemoryOrderRepository {
 impl OrderRepository for Arc<InMemoryOrderRepository> {
     async fn list_orders(
         &self,
-        _role: &str,
-        _user_id: Option<&str>,
+        role: &str,
+        user_id: Option<&str>,
         stage: Option<OrderStage>,
     ) -> Result<Vec<Order>, OrderError> {
         let orders = self.orders.lock().await;
         let filtered = orders
             .iter()
+            .filter(|order| match role {
+                "seller" => user_id.map_or(true, |id| order.seller_id == id),
+                _ => user_id.map_or(true, |id| order.buyer_id == id),
+            })
             .filter(|order| stage.as_ref().map_or(true, |s| order.stage == *s))
             .cloned()
             .collect();
