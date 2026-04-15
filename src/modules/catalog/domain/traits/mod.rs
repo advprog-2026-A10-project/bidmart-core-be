@@ -1,9 +1,9 @@
-mod category_repository;
-mod listing_repository;
-mod listing_image_repository;
-mod listing_integration_port;
+mod category_traits;
+mod listing_traits;
+mod listing_image_traits;
+mod listing_integration_traits;
 
-pub use category_repository::CategoryRepository;
-pub use listing_repository::{ListingFilter, ListingRepository};
-pub use listing_image_repository::ListingImageRepository;
-pub use listing_integration_port::ListingIntegrationPort;
+pub use category_traits::CategoryRepository;
+pub use listing_traits::{ListingFilter, ListingRepository};
+pub use listing_image_traits::ListingImageRepository;
+pub use listing_integration_traits::ListingIntegrationPort;
