@@ -29,7 +29,6 @@ impl ListingUseCases {
         Self { listing_repo, image_repo, category_repo }
     }
 
-     // S1: Seller creates listing
     pub async fn create_listing(
         &self,
         seller_id: Uuid,
@@ -114,7 +113,6 @@ impl ListingUseCases {
         })
     }
 
-    // S2: Seller lists all their own listings
     pub async fn list_my_listings(
         &self,
         seller_id: Uuid,
@@ -145,7 +143,6 @@ impl ListingUseCases {
         })
     }
     
-    // S3: Seller gets detail of one specific listing
     pub async fn get_my_listing(
         &self,
         seller_id: Uuid,
@@ -169,7 +166,6 @@ impl ListingUseCases {
         })
     }
 
-    // S4: Seller updates listing
     pub async fn update_listing(
         &self,
         seller_id: Uuid,
@@ -209,7 +205,6 @@ impl ListingUseCases {
         })
     }
 
-    /// S5: Seller cancels listing
     pub async fn cancel_listing(
         &self,
         seller_id: Uuid,
