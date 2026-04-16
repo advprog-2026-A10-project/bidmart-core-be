@@ -85,3 +85,21 @@ pub async fn internal_hold(
     let response = state.use_cases.internal_hold(payload).await?;
     Ok(Json(response))
 }
+
+pub async fn internal_release(
+    State(state): State<WalletAppState>,
+    _auth: InternalAuth,
+    Json(payload): Json<crate::modules::wallet::application::dto::InternalReleaseRequest>,
+) -> Result<Json<crate::modules::wallet::application::dto::InternalReleaseResponse>, WalletError> {
+    let response = state.use_cases.internal_release(payload).await?;
+    Ok(Json(response))
+}
+
+pub async fn internal_payment(
+    State(state): State<WalletAppState>,
+    _auth: InternalAuth,
+    Json(payload): Json<crate::modules::wallet::application::dto::InternalPaymentRequest>,
+) -> Result<Json<crate::modules::wallet::application::dto::InternalPaymentResponse>, WalletError> {
+    let response = state.use_cases.internal_payment(payload).await?;
+    Ok(Json(response))
+}

@@ -100,3 +100,45 @@ pub struct InternalHoldResponse {
     #[serde(rename = "heldCents")]
     pub held_cents: i64,
 }
+
+#[derive(Deserialize)]
+pub struct InternalReleaseRequest {
+    #[serde(rename = "userId")]
+    pub user_id: Uuid,
+    #[serde(rename = "referenceId")]
+    pub reference_id: Uuid,
+    #[serde(rename = "amountCents")]
+    pub amount_cents: i64,
+}
+
+#[derive(Serialize)]
+pub struct InternalReleaseResponse {
+    pub released: bool,
+    #[serde(rename = "releaseId")]
+    pub release_id: Uuid,
+    #[serde(rename = "availableCents")]
+    pub available_cents: i64,
+    #[serde(rename = "heldCents")]
+    pub held_cents: i64,
+}
+
+#[derive(Deserialize)]
+pub struct InternalPaymentRequest {
+    #[serde(rename = "userId")]
+    pub user_id: Uuid,
+    #[serde(rename = "referenceId")]
+    pub reference_id: Uuid,
+    #[serde(rename = "amountCents")]
+    pub amount_cents: i64,
+}
+
+#[derive(Serialize)]
+pub struct InternalPaymentResponse {
+    pub paid: bool,
+    #[serde(rename = "paymentId")]
+    pub payment_id: Uuid,
+    #[serde(rename = "availableCents")]
+    pub available_cents: i64,
+    #[serde(rename = "heldCents")]
+    pub held_cents: i64,
+}

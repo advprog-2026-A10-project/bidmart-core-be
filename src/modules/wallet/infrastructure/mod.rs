@@ -13,8 +13,8 @@ use sqlx::PgPool;
 
 use crate::modules::wallet::application::use_cases::WalletUseCases;
 use crate::modules::wallet::infrastructure::controllers::{
-    get_balance, get_transaction_by_id, get_transactions, internal_hold, topup, withdraw,
-    WalletAppState,
+    get_balance, get_transaction_by_id, get_transactions, internal_hold, internal_payment,
+    internal_release, topup, withdraw, WalletAppState,
 };
 use crate::modules::wallet::infrastructure::repositories::PostgresWalletRepository;
 
@@ -34,5 +34,13 @@ pub fn create_router(pool: PgPool) -> Router {
             get(get_transaction_by_id),
         )
         .route("/api/core/v1/internal/wallet/holds", post(internal_hold))
+        .route(
+            "/api/core/v1/internal/wallet/release",
+            post(internal_release),
+        )
+        .route(
+            "/api/core/v1/internal/wallet/payment",
+            post(internal_payment),
+        )
         .with_state(state)
 }
