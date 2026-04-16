@@ -1,5 +1,4 @@
-use crate::modules::order::domain::entities::{NotificationEventPayload, OrderId, OrderStage};
-use uuid::Uuid;
+use crate::modules::order::domain::entities::{OrderId, OrderStage};
 
 pub struct ListOrdersDto {
     pub user_id: Option<String>,
@@ -26,23 +25,4 @@ pub struct UpdateShippingDto {
     pub order_id: OrderId,
     pub status: String,
     pub tracking: Option<String>,
-}
-
-pub struct ListNotificationsDto {
-    pub user_id: Option<String>,
-    pub limit: Option<u32>,
-    pub unread_only: bool,
-}
-
-pub struct GetNotificationDto {
-    pub notification_id: Uuid,
-}
-
-pub struct MarkNotificationDto {
-    pub notification_id: Uuid,
-    pub actor_id: String,
-}
-
-pub struct PublishEventDto {
-    pub payload: NotificationEventPayload,
 }
