@@ -87,15 +87,15 @@ impl ListingRepository for PostgresListingRepository {
         filter: ListingFilter,
     ) -> Result<(Vec<Listing>, i64), ListingError> {
         let offset = (filter.page - 1) * filter.page_size;
-        // Compute pattern in Rust so both queries can borrow it
         let keyword = filter.keyword.as_ref().map(|k| format!("%{}%", k));
         let status = filter.status;
+        let category_ids = filter.category_ids;
 
         let total: i64 = sqlx::query_scalar(
             r#"
             SELECT COUNT(*) FROM listings
             WHERE ($1::text IS NULL OR title ILIKE $1 OR description ILIKE $1)
-              AND ($2::int4 IS NULL OR category_id = $2)
+              AND ($2::int4[] IS NULL OR category_id = ANY($2))
               AND ($3::int8 IS NULL OR current_price >= $3)
               AND ($4::int8 IS NULL OR current_price <= $4)
               AND ($5::timestamptz IS NULL OR ends_at <= $5)
@@ -104,7 +104,7 @@ impl ListingRepository for PostgresListingRepository {
             "#,
         )
         .bind(keyword.as_deref())
-        .bind(filter.category_id)
+        .bind(category_ids.as_deref())
         .bind(filter.min_price)
         .bind(filter.max_price)
         .bind(filter.end_before)
@@ -122,7 +122,7 @@ impl ListingRepository for PostgresListingRepository {
                    starts_at, ends_at, created_at, updated_at
             FROM listings
             WHERE ($1::text IS NULL OR title ILIKE $1 OR description ILIKE $1)
-              AND ($2::int4 IS NULL OR category_id = $2)
+              AND ($2::int4[] IS NULL OR category_id = ANY($2))
               AND ($3::int8 IS NULL OR current_price >= $3)
               AND ($4::int8 IS NULL OR current_price <= $4)
               AND ($5::timestamptz IS NULL OR ends_at <= $5)
@@ -133,7 +133,7 @@ impl ListingRepository for PostgresListingRepository {
             "#,
         )
         .bind(keyword.as_deref())
-        .bind(filter.category_id)
+        .bind(category_ids.as_deref())
         .bind(filter.min_price)
         .bind(filter.max_price)
         .bind(filter.end_before)

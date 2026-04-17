@@ -171,4 +171,24 @@ impl CategoryRepository for PostgresCategoryRepository {
         tx.commit().await.map_err(CategoryError::DatabaseError)?;
         Ok(())
     }
+
+    async fn get_subtree_ids(&self, root_id: i32) -> Result<Vec<i32>, CategoryError> {
+        let rows: Vec<(i32,)> = sqlx::query_as(
+            r#"
+            WITH RECURSIVE subtree AS (
+                SELECT id FROM categories WHERE id = $1
+                UNION ALL
+                SELECT c.id FROM categories c
+                INNER JOIN subtree s ON c.parent_id = s.id
+            )
+            SELECT id FROM subtree
+            "#,
+        )
+        .bind(root_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(CategoryError::DatabaseError)?;
+
+        Ok(rows.into_iter().map(|(id,)| id).collect())
+    }
 }
