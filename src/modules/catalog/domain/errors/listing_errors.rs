@@ -33,10 +33,10 @@ impl axum::response::IntoResponse for ListingError {
             ListingError::NotFound => {
                 (axum::http::StatusCode::NOT_FOUND, self.to_string())
             }
-            ListingError::NotEditable
-            | ListingError::NotCancellable
-            | ListingError::NotActive
-            | ListingError::ValidationError(_) => {
+            ListingError::NotEditable | ListingError::NotCancellable => {
+                (axum::http::StatusCode::CONFLICT, self.to_string())
+            }
+            ListingError::NotActive | ListingError::ValidationError(_) => {
                 (axum::http::StatusCode::BAD_REQUEST, self.to_string())
             }
             ListingError::Unauthorized => {

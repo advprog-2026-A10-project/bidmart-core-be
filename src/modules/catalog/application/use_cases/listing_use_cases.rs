@@ -77,6 +77,11 @@ impl ListingUseCases {
                     .ok_or_else(|| {
                         ListingError::ValidationError("Category not found".to_string())
                     })?;
+                if cat.child_count > 0 {
+                    return Err(ListingError::ValidationError(
+                        "Category must be a leaf (no subcategories)".to_string(),
+                    ));
+                }
                 (Some(id), cat.name)
             }
             None => (None, String::new()),
