@@ -128,7 +128,7 @@ impl ListingUseCases {
 
         let filter = ListingFilter {
             keyword: None,
-            category_id: None,
+            category_ids: None,
             min_price: None,
             max_price: None,
             end_before: None,

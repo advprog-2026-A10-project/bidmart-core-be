@@ -7,7 +7,7 @@ use crate::modules::catalog::domain::errors::ListingError;
 
 pub struct ListingFilter {
     pub keyword: Option<String>,
-    pub category_id: Option<i32>,
+    pub category_ids: Option<Vec<i32>>,
     pub min_price: Option<i64>,
     pub max_price: Option<i64>,
     pub end_before: Option<DateTime<Utc>>,

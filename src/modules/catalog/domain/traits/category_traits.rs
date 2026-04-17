@@ -16,6 +16,11 @@ pub trait CategoryRepository: Send + Sync {
         slug: &str,
     ) -> Result<Option<Category>, CategoryError>;
 
+    async fn get_subtree_ids(
+        &self,
+        root_id: i32,
+    ) -> Result<Vec<i32>, CategoryError>;
+
     async fn list_categories(
         &self,
         parent_id: Option<i32>,
