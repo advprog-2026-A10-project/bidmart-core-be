@@ -17,6 +17,7 @@ use crate::modules::order::application::use_cases::{
     UpdateShippingUseCase,
 };
 use crate::modules::order::domain::entities::OrderStage;
+use crate::modules::order::domain::errors::OrderError;
 use crate::modules::order::infrastructure::AppState;
 
 #[derive(Deserialize)]
@@ -62,7 +63,13 @@ async fn list_orders_by_role(
     query: ListOrdersQuery,
     role: &str,
 ) -> impl IntoResponse {
-    let stage = query.stage.as_deref().and_then(parse_stage);
+    let stage = match query.stage.as_deref() {
+        Some(stage_value) => match parse_stage(stage_value) {
+            Some(parsed_stage) => Some(parsed_stage),
+            None => return (StatusCode::BAD_REQUEST, "Invalid stage").into_response(),
+        },
+        None => None,
+    };
 
     let dto = ListOrdersDto {
         user_id: query.user_id,
@@ -108,7 +115,14 @@ async fn confirm_order(
     Path(order_id): Path<String>,
     Json(body): Json<ConfirmOrderBody>,
 ) -> impl IntoResponse {
-    let order_id = Uuid::parse_str(&order_id).unwrap_or_default();
+    if body.actor_id.trim().is_empty() {
+        return (StatusCode::BAD_REQUEST, "actor_id is required").into_response();
+    }
+
+    let order_id = match Uuid::parse_str(&order_id) {
+        Ok(value) => value,
+        Err(_) => return (StatusCode::BAD_REQUEST, "Invalid order id").into_response(),
+    };
     let dto = ConfirmOrderDto {
         order_id,
         actor_id: body.actor_id,
@@ -118,7 +132,7 @@ async fn confirm_order(
 
     match use_case.execute(dto).await {
         Ok(_) => StatusCode::NO_CONTENT.into_response(),
-        Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "Unable to confirm order").into_response(),
+        Err(error) => map_order_error(error, "Unable to confirm order").into_response(),
     }
 }
 
@@ -126,6 +140,7 @@ async fn confirm_order(
 struct CreateDisputeBody {
     reporter_id: String,
     reason: String,
+    details: Option<String>,
 }
 
 async fn create_dispute(
@@ -133,22 +148,38 @@ async fn create_dispute(
     Path(order_id): Path<String>,
     Json(body): Json<CreateDisputeBody>,
 ) -> impl IntoResponse {
-    let order_id = Uuid::parse_str(&order_id).unwrap_or_default();
+    if body.reporter_id.trim().is_empty() {
+        return (StatusCode::BAD_REQUEST, "reporter_id is required").into_response();
+    }
+
+    if body.reason.trim().is_empty() {
+        return (StatusCode::BAD_REQUEST, "reason is required").into_response();
+    }
+
+    if !body.reason.to_lowercase().contains("barang tidak sesuai") {
+        return (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "reason must include 'barang tidak sesuai'",
+        )
+            .into_response();
+    }
+
+    let order_id = match Uuid::parse_str(&order_id) {
+        Ok(value) => value,
+        Err(_) => return (StatusCode::BAD_REQUEST, "Invalid order id").into_response(),
+    };
     let dto = CreateDisputeDto {
         order_id,
         reporter_id: body.reporter_id,
         reason: body.reason,
+        details: body.details,
     };
 
     let use_case = CreateDisputeUseCase::new(state.order_repo.clone());
 
     match use_case.execute(dto).await {
         Ok(_) => StatusCode::NO_CONTENT.into_response(),
-        Err(_) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Unable to create dispute",
-        )
-            .into_response(),
+        Err(error) => map_order_error(error, "Unable to create dispute").into_response(),
     }
 }
 
@@ -163,7 +194,14 @@ async fn update_shipping(
     Path(order_id): Path<String>,
     Json(body): Json<UpdateShippingBody>,
 ) -> impl IntoResponse {
-    let order_id = Uuid::parse_str(&order_id).unwrap_or_default();
+    if body.status.trim().is_empty() {
+        return (StatusCode::BAD_REQUEST, "status is required").into_response();
+    }
+
+    let order_id = match Uuid::parse_str(&order_id) {
+        Ok(value) => value,
+        Err(_) => return (StatusCode::BAD_REQUEST, "Invalid order id").into_response(),
+    };
     let dto = UpdateShippingDto {
         order_id,
         status: body.status,
@@ -174,11 +212,7 @@ async fn update_shipping(
 
     match use_case.execute(dto).await {
         Ok(_) => StatusCode::NO_CONTENT.into_response(),
-        Err(_) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Unable to update shipping",
-        )
-            .into_response(),
+        Err(error) => map_order_error(error, "Unable to update shipping").into_response(),
     }
 }
 
@@ -189,5 +223,13 @@ fn parse_stage(input: &str) -> Option<OrderStage> {
         "completed" => Some(OrderStage::Completed),
         "cancelled" => Some(OrderStage::Cancelled),
         _ => None,
+    }
+}
+
+fn map_order_error(error: OrderError, fallback_message: &'static str) -> (StatusCode, &'static str) {
+    match error {
+        OrderError::NotFound => (StatusCode::NOT_FOUND, "Order not found"),
+        OrderError::InvalidTransition => (StatusCode::CONFLICT, "Invalid order transition"),
+        OrderError::Database(_) => (StatusCode::INTERNAL_SERVER_ERROR, fallback_message),
     }
 }

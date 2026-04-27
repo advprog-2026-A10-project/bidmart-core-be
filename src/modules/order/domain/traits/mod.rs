@@ -24,6 +24,7 @@ pub trait OrderRepository: Send + Sync {
         order_id: OrderId,
         reporter_id: &str,
         reason: &str,
+        details: Option<&str>,
     ) -> Result<(), OrderError>;
 
     async fn update_shipping_status(

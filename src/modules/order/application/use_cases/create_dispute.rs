@@ -15,7 +15,12 @@ impl<T: OrderRepository> CreateDisputeUseCase<T> {
         dto: CreateDisputeDto,
     ) -> Result<(), crate::modules::order::domain::errors::OrderError> {
         self.repository
-            .create_dispute(dto.order_id, &dto.reporter_id, &dto.reason)
+            .create_dispute(
+                dto.order_id,
+                &dto.reporter_id,
+                &dto.reason,
+                dto.details.as_deref(),
+            )
             .await
     }
 }

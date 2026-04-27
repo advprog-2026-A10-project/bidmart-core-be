@@ -8,6 +8,7 @@ use crate::modules::order::infrastructure::repositories::{
     in_memory_order_repository::InMemoryOrderRepository,
 };
 use chrono::Utc;
+use serde_json::json;
 use sqlx::postgres::PgPool;
 use uuid::Uuid;
 
@@ -81,7 +82,7 @@ fn sample_notification_data() -> Vec<Notification> {
             notification_type: NotificationType::BidPlaced,
             created_at: Utc::now().to_rfc3339(),
             read_at: None,
-            metadata: None,
+            metadata: Some(json!({ "userId": "buyer-vel" })),
         },
         Notification {
             id: Uuid::new_v4(),
@@ -92,7 +93,7 @@ fn sample_notification_data() -> Vec<Notification> {
             notification_type: NotificationType::WinnerDetermined,
             created_at: Utc::now().to_rfc3339(),
             read_at: None,
-            metadata: None,
+            metadata: Some(json!({ "userId": "buyer-krl" })),
         },
     ]
 }

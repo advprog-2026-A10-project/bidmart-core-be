@@ -14,6 +14,7 @@ use crate::modules::order::application::dto::{
 use crate::modules::order::application::use_cases::{
     GetNotificationUseCase, ListNotificationsUseCase, MarkNotificationUseCase,
 };
+use crate::modules::order::domain::errors::NotificationError;
 use crate::modules::order::infrastructure::AppState;
 
 #[derive(Deserialize)]
@@ -94,6 +95,10 @@ async fn mark_as_read(
     Path(notification_id): Path<String>,
     Json(body): Json<MarkAsReadBody>,
 ) -> impl IntoResponse {
+    if body.actor_id.trim().is_empty() {
+        return (StatusCode::BAD_REQUEST, "actor_id is required").into_response();
+    }
+
     let notification_id = match Uuid::parse_str(&notification_id) {
         Ok(value) => value,
         Err(_) => return (StatusCode::BAD_REQUEST, "Invalid notification id").into_response(),
@@ -107,10 +112,20 @@ async fn mark_as_read(
 
     match use_case.execute(dto).await {
         Ok(_) => StatusCode::NO_CONTENT.into_response(),
-        Err(_) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Unable to mark notification",
-        )
-            .into_response(),
+        Err(error) => map_notification_error(error, "Unable to mark notification").into_response(),
+    }
+}
+
+fn map_notification_error(
+    error: NotificationError,
+    fallback_message: &'static str,
+) -> (StatusCode, &'static str) {
+    match error {
+        NotificationError::NotFound => (StatusCode::NOT_FOUND, "Notification not found"),
+        NotificationError::AlreadyRead => (
+            StatusCode::CONFLICT,
+            "Notification already marked as read",
+        ),
+        NotificationError::Database(_) => (StatusCode::INTERNAL_SERVER_ERROR, fallback_message),
     }
 }

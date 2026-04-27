@@ -6,6 +6,7 @@ use crate::modules::order::domain::entities::{
 };
 use crate::modules::order::domain::errors::NotificationError;
 use crate::modules::order::domain::traits::NotificationRepository;
+use chrono::Utc;
 
 pub struct InMemoryNotificationRepository {
     notifications: Mutex<Vec<Notification>>,
@@ -63,9 +64,20 @@ impl NotificationRepository for Arc<InMemoryNotificationRepository> {
 
     async fn mark_as_read(
         &self,
-        _notification_id: NotificationId,
+        notification_id: NotificationId,
         _actor_id: &str,
     ) -> Result<(), NotificationError> {
+        let mut notifications = self.notifications.lock().await;
+        let notification = notifications
+            .iter_mut()
+            .find(|notification| notification.id == notification_id)
+            .ok_or(NotificationError::NotFound)?;
+
+        if notification.read_at.is_some() {
+            return Err(NotificationError::AlreadyRead);
+        }
+
+        notification.read_at = Some(Utc::now().to_rfc3339());
         Ok(())
     }
 

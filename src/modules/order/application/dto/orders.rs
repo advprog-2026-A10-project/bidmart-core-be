@@ -19,6 +19,7 @@ pub struct CreateDisputeDto {
     pub order_id: OrderId,
     pub reporter_id: String,
     pub reason: String,
+    pub details: Option<String>,
 }
 
 pub struct UpdateShippingDto {
