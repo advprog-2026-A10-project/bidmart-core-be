@@ -1,2 +1,3 @@
-// Placeholder for services
-// TODO: Add services as needed
+pub mod listing_integration_service;
+
+pub use listing_integration_service::ListingIntegrationService;
