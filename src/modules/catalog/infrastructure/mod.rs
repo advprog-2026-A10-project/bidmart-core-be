@@ -7,22 +7,25 @@ pub mod middleware;
 pub mod repositories;
 pub mod services;
 
-use controllers::{buyer_controller, category_controller, seller_controller};
+use controllers::{buyer_controller, category_controller, seller_controller, internal_controller};
 use repositories::{
     PostgresCategoryRepository, PostgresListingImageRepository, PostgresListingRepository,
 };
+use services::ListingIntegrationService;
 
 use crate::modules::catalog::application::use_cases::{
     buyer_listing_use_cases::BuyerListingUseCases,
     category_use_cases::CategoryUseCases,
     listing_use_cases::ListingUseCases,
 };
+use crate::modules::catalog::domain::traits::ListingIntegrationPort;
 
 #[derive(Clone)]
 pub struct AppState {
     pub listing_use_cases: Arc<ListingUseCases>,
     pub buyer_listing_use_cases: Arc<BuyerListingUseCases>,
     pub category_use_cases: Arc<CategoryUseCases>,
+    pub integration_service: Arc<dyn ListingIntegrationPort>,
 }
 
 impl AppState {
@@ -43,12 +46,12 @@ impl AppState {
                 category_repo.clone(),
             )),
             category_use_cases: Arc::new(CategoryUseCases::new(category_repo)),
+            integration_service: Arc::new(ListingIntegrationService::new(pool)),
         }
     }
 }
 
 pub fn create_router(state: AppState) -> Router {
-    // Seller routes — require auth middleware
     let seller_routes = Router::new()
         .route(
             "/seller/listings",
@@ -63,7 +66,6 @@ pub fn create_router(state: AppState) -> Router {
         )
         .layer(from_fn(middleware::require_auth));
 
-    // Buyer routes — public
     let buyer_routes = Router::new()
         .route("/catalog", routing::get(buyer_controller::browse_catalog))
         .route(
@@ -75,18 +77,38 @@ pub fn create_router(state: AppState) -> Router {
             routing::get(buyer_controller::get_public_listing),
         );
 
-    // Category routes — public
     let category_routes = Router::new()
-        .route("/categories", routing::get(category_controller::list_categories))
+        .route(
+            "/categories",
+            routing::get(category_controller::list_categories),
+        )
         .route(
             "/categories/:id",
             routing::get(category_controller::get_category_by_id),
         );
 
+    let internal_routes = Router::new()
+        .route(
+            "/internal/listings/:id/status",
+            routing::get(internal_controller::get_listing_status)
+                .patch(internal_controller::update_status),
+        )
+        .route(
+            "/internal/listings/:id/auction",
+            routing::patch(internal_controller::link_auction),
+        )
+        .route(
+            "/internal/listings/:id/ends-at",
+            routing::patch(internal_controller::update_ends_at),
+        );
+
     Router::new()
         .nest(
             "/api/v1",
-            seller_routes.merge(buyer_routes).merge(category_routes),
+            seller_routes
+                .merge(buyer_routes)
+                .merge(category_routes)
+                .merge(internal_routes),
         )
         .with_state(state)
 }
