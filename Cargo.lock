@@ -194,6 +194,7 @@ dependencies = [
  "chrono",
  "config",
  "dotenv",
+ "once_cell",
  "reqwest",
  "rust_decimal",
  "serde",
