@@ -1,5 +1,4 @@
 use async_trait::async_trait;
-use uuid::Uuid;
 
 use crate::modules::catalog::domain::entities::Category;
 use crate::modules::catalog::domain::errors::CategoryError;

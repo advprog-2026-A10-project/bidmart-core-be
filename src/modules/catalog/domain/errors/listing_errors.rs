@@ -11,6 +11,9 @@ pub enum ListingError {
     #[error("Listing cannot be cancelled in its current state")]
     NotCancellable,
 
+    #[error("Listing cannot be published in its current state")]
+    NotPublishable,
+
     #[error("Listing is not active")]
     NotActive,
 
@@ -33,7 +36,9 @@ impl axum::response::IntoResponse for ListingError {
             ListingError::NotFound => {
                 (axum::http::StatusCode::NOT_FOUND, self.to_string())
             }
-            ListingError::NotEditable | ListingError::NotCancellable => {
+            ListingError::NotEditable
+            | ListingError::NotCancellable
+            | ListingError::NotPublishable => {
                 (axum::http::StatusCode::CONFLICT, self.to_string())
             }
             ListingError::NotActive | ListingError::ValidationError(_) => {

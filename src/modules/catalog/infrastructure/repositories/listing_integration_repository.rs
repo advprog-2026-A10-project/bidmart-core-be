@@ -1,9 +1,11 @@
+use async_trait::async_trait;
 use sqlx::PgPool;
 use uuid::Uuid;
 use chrono::{DateTime, Utc};
 
 use crate::modules::catalog::domain::entities::ListingStatus;
 use crate::modules::catalog::domain::errors::ListingError;
+use crate::modules::catalog::domain::traits::ListingIntegrationPort;
 
 pub struct PostgresListingIntegrationRepository {
     pool: PgPool,
@@ -13,8 +15,11 @@ impl PostgresListingIntegrationRepository {
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
     }
+}
 
-    pub async fn get_listing_status(
+#[async_trait]
+impl ListingIntegrationPort for PostgresListingIntegrationRepository {
+    async fn get_listing_status(
         &self,
         id: Uuid,
     ) -> Result<Option<ListingStatus>, ListingError> {
@@ -27,7 +32,7 @@ impl PostgresListingIntegrationRepository {
         .map_err(ListingError::DatabaseError)
     }
 
-    pub async fn update_listing_status(
+    async fn update_listing_status(
         &self,
         id: Uuid,
         status: ListingStatus,
@@ -48,7 +53,7 @@ impl PostgresListingIntegrationRepository {
         Ok(())
     }
 
-    pub async fn link_auction(
+    async fn link_auction(
         &self,
         listing_id: Uuid,
         auction_id: Uuid,
@@ -69,7 +74,7 @@ impl PostgresListingIntegrationRepository {
         Ok(())
     }
 
-    pub async fn update_ends_at(
+    async fn update_ends_at(
         &self,
         listing_id: Uuid,
         new_ends_at: DateTime<Utc>,
@@ -87,6 +92,18 @@ impl PostgresListingIntegrationRepository {
         if affected == 0 {
             return Err(ListingError::NotFound);
         }
+        Ok(())
+    }
+
+    async fn update_current_price(
+        &self,
+        _id: Uuid,
+        _new_price: i64,
+    ) -> Result<(), ListingError> {
+        Ok(())
+    }
+
+    async fn increment_bid_count(&self, _id: Uuid) -> Result<(), ListingError> {
         Ok(())
     }
 }

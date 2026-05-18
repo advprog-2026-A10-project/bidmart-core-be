@@ -63,3 +63,12 @@ pub async fn cancel_listing(
     state.listing_use_cases.cancel_listing(auth.id, id).await?;
     Ok(StatusCode::NO_CONTENT)
 }
+
+pub async fn publish_listing(
+    State(state): State<AppState>,
+    Extension(auth): Extension<AuthUser>,
+    Path(id): Path<Uuid>,
+) -> Result<Json<ListingDetailResponse>, ListingError> {
+    let result = state.listing_use_cases.publish_listing(auth.id, id).await?;
+    Ok(Json(result))
+}

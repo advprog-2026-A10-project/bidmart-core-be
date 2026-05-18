@@ -36,9 +36,19 @@ impl BuyerListingUseCases {
         let page = params.page.unwrap_or(1).max(1);
         let page_size = params.page_size.unwrap_or(20).clamp(1, 100);
 
+        let category_ids = match params.category_id {
+            Some(id) => Some(
+                self.category_repo
+                    .get_subtree_ids(id)
+                    .await
+                    .map_err(|e| ListingError::InternalError(e.to_string()))?,
+            ),
+            None => None,
+        };
+
         let filter = ListingFilter {
             keyword: params.q,
-            category_ids: params.category_id.map(|id| vec![id]),
+            category_ids,
             min_price: params.min_price,
             max_price: params.max_price,
             end_before: params.end_before,

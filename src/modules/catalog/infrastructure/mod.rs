@@ -9,7 +9,7 @@ pub mod services;
 
 use controllers::{buyer_controller, category_controller, seller_controller, internal_controller};
 use repositories::{
-    PostgresCategoryRepository, PostgresListingImageRepository, PostgresListingRepository,
+    PostgresCategoryRepository, PostgresListingImageRepository, PostgresListingIntegrationRepository, PostgresListingRepository,
 };
 use services::ListingIntegrationService;
 
@@ -33,6 +33,8 @@ impl AppState {
         let listing_repo = Arc::new(PostgresListingRepository::new(pool.clone()));
         let image_repo = Arc::new(PostgresListingImageRepository::new(pool.clone()));
         let category_repo = Arc::new(PostgresCategoryRepository::new(pool.clone()));
+        let integration_repo: Arc<dyn ListingIntegrationPort> =
+            Arc::new(PostgresListingIntegrationRepository::new(pool.clone()));
 
         Self {
             listing_use_cases: Arc::new(ListingUseCases::new(
@@ -46,7 +48,7 @@ impl AppState {
                 category_repo.clone(),
             )),
             category_use_cases: Arc::new(CategoryUseCases::new(category_repo)),
-            integration_service: Arc::new(ListingIntegrationService::new(pool)),
+            integration_service: Arc::new(ListingIntegrationService::new(integration_repo)),
         }
     }
 }
@@ -64,12 +66,16 @@ pub fn create_router(state: AppState) -> Router {
                 .patch(seller_controller::update_listing)
                 .delete(seller_controller::cancel_listing),
         )
+        .route(
+            "/seller/listings/:id/publish",
+            routing::post(seller_controller::publish_listing),
+        )
         .layer(from_fn(middleware::require_auth));
 
     let buyer_routes = Router::new()
         .route("/catalog", routing::get(buyer_controller::browse_catalog))
         .route(
-            "/catalog/c/:slug",
+            "/c/:slug",
             routing::get(buyer_controller::browse_by_category_slug),
         )
         .route(
@@ -80,11 +86,18 @@ pub fn create_router(state: AppState) -> Router {
     let category_routes = Router::new()
         .route(
             "/categories",
-            routing::get(category_controller::list_categories),
+            routing::get(category_controller::list_categories)
+                .post(category_controller::create_category),
+        )
+        .route(
+            "/categories/slug/:slug",
+            routing::get(category_controller::get_category_by_slug),
         )
         .route(
             "/categories/:id",
-            routing::get(category_controller::get_category_by_id),
+            routing::get(category_controller::get_category_by_id)
+                .patch(category_controller::update_category)
+                .delete(category_controller::delete_category),
         );
 
     let internal_routes = Router::new()

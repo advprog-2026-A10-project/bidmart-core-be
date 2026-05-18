@@ -1,4 +1,4 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::modules::catalog::domain::entities::Category;
 
@@ -23,4 +23,19 @@ impl From<Category> for CategoryResponse {
             child_count: c.child_count,
         }
     }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateCategoryRequest {
+    pub name: String,
+    pub slug: String,
+    pub parent_id: Option<i32>,
+    pub image_url: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateCategoryRequest {
+    pub name: Option<String>,
+    pub slug: Option<String>,
+    pub image_url: Option<String>,
 }

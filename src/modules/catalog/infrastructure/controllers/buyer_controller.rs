@@ -5,15 +5,14 @@ use axum::{
 use uuid::Uuid;
 
 use crate::modules::catalog::application::dto::buyer_listing_dto::{
-    BuyerListingDetailResponse, BuyerListingResponse, PublicListingQueryParams,
+    BuyerListingDetailResponse, BuyerListingResponse, CatalogPageParams,
+    PublicListingQueryParams,
 };
-use crate::modules::catalog::application::dto::listing_dto::{
-    ListingQueryParams, PaginatedResponse,
-};
+use crate::modules::catalog::application::dto::listing_dto::PaginatedResponse;
 use crate::modules::catalog::domain::errors::ListingError;
 use crate::modules::catalog::infrastructure::AppState;
 
-// GET /api/v1/catalog  (also handles ?q=, ?min_price=, ?max_price=, ?end_before=)
+// GET /api/v1/catalog
 pub async fn browse_catalog(
     State(state): State<AppState>,
     axum::extract::Query(params): axum::extract::Query<PublicListingQueryParams>,
@@ -31,11 +30,11 @@ pub async fn get_public_listing(
     Ok(Json(result))
 }
 
-// GET /api/v1/catalog/c/:slug
+// GET /api/v1/c/:slug
 pub async fn browse_by_category_slug(
     State(state): State<AppState>,
     Path(slug): Path<String>,
-    axum::extract::Query(params): axum::extract::Query<ListingQueryParams>,
+    axum::extract::Query(params): axum::extract::Query<CatalogPageParams>,
 ) -> Result<Json<PaginatedResponse<BuyerListingResponse>>, ListingError> {
     let page = params.page.unwrap_or(1);
     let page_size = params.page_size.unwrap_or(20);

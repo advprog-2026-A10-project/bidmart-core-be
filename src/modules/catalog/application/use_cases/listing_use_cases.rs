@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use chrono::Utc;
+use chrono::{Duration, Utc};
 use uuid::Uuid;
 
 use crate::modules::catalog::domain::entities::ListingStatus;
@@ -13,6 +13,37 @@ use crate::modules::catalog::application::dto::listing_dto::{
     CreateListingRequest, ListingDetailResponse, ListingImageResponse,
     ListingQueryParams, ListingResponse, PaginatedResponse, UpdateListingRequest,
 };
+
+const MAX_IMAGES: usize = 10;
+const MAX_IMAGE_URL_LEN: usize = 2048;
+const CLOCK_SKEW: Duration = Duration::minutes(5);
+
+fn validate_image_urls(urls: &[String]) -> Result<(), ListingError> {
+    if urls.len() > MAX_IMAGES {
+        return Err(ListingError::ValidationError(format!(
+            "At most {MAX_IMAGES} images are allowed"
+        )));
+    }
+    for url in urls {
+        let trimmed = url.trim();
+        if trimmed.is_empty() {
+            return Err(ListingError::ValidationError(
+                "Image URL cannot be empty".to_string(),
+            ));
+        }
+        if trimmed.len() > MAX_IMAGE_URL_LEN {
+            return Err(ListingError::ValidationError(
+                "Image URL is too long".to_string(),
+            ));
+        }
+        if !(trimmed.starts_with("https://") || trimmed.starts_with("http://")) {
+            return Err(ListingError::ValidationError(
+                "Image URL must start with http:// or https://".to_string(),
+            ));
+        }
+    }
+    Ok(())
+}
 
 pub struct ListingUseCases {
     listing_repo: Arc<dyn ListingRepository>,
@@ -58,6 +89,11 @@ impl ListingUseCases {
                 "ends_at must be in the future".to_string(),
             ));
         }
+        if req.starts_at < Utc::now() - CLOCK_SKEW {
+            return Err(ListingError::ValidationError(
+                "starts_at cannot be in the past".to_string(),
+            ));
+        }
         if let Some(reserve) = req.reserve_price {
             if reserve < req.start_price {
                 return Err(ListingError::ValidationError(
@@ -65,6 +101,7 @@ impl ListingUseCases {
                 ));
             }
         }
+        validate_image_urls(&req.image_urls)?;
 
         // Resolve category name from category_id
         let (category_id, category_name) = match req.category_id {
@@ -186,8 +223,12 @@ impl ListingUseCases {
         if listing.seller_id != seller_id {
             return Err(ListingError::Unauthorized);
         }
-        if listing.status != ListingStatus::Draft {
+        if !listing.is_mutable_by_seller() {
             return Err(ListingError::NotEditable);
+        }
+
+        if let Some(urls) = req.image_urls.as_ref() {
+            validate_image_urls(urls)?;
         }
 
         let updated = self
@@ -224,10 +265,37 @@ impl ListingUseCases {
         if listing.seller_id != seller_id {
             return Err(ListingError::Unauthorized);
         }
-        if listing.status != ListingStatus::Draft {
+        if !listing.is_mutable_by_seller() {
             return Err(ListingError::NotCancellable);
         }
 
         self.listing_repo.cancel_listing(listing_id).await
+    }
+
+    pub async fn publish_listing(
+        &self,
+        seller_id: Uuid,
+        listing_id: Uuid,
+    ) -> Result<ListingDetailResponse, ListingError> {
+        let listing = self
+            .listing_repo
+            .get_listing(listing_id)
+            .await?
+            .ok_or(ListingError::NotFound)?;
+
+        if listing.seller_id != seller_id {
+            return Err(ListingError::Unauthorized);
+        }
+        if listing.status != ListingStatus::Draft {
+            return Err(ListingError::NotPublishable);
+        }
+
+        let published = self.listing_repo.publish_listing(listing_id).await?;
+        let images = self.image_repo.get_listing_images(listing_id).await?;
+
+        Ok(ListingDetailResponse {
+            listing: ListingResponse::from(published),
+            images: images.into_iter().map(ListingImageResponse::from).collect(),
+        })
     }
 }

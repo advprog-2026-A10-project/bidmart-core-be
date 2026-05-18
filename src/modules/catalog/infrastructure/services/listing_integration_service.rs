@@ -1,23 +1,19 @@
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use sqlx::PgPool;
 use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::modules::catalog::domain::entities::ListingStatus;
 use crate::modules::catalog::domain::errors::ListingError;
 use crate::modules::catalog::domain::traits::ListingIntegrationPort;
-use crate::modules::catalog::infrastructure::repositories::PostgresListingIntegrationRepository;
 
 pub struct ListingIntegrationService {
-    repo: Arc<PostgresListingIntegrationRepository>,
+    repo: Arc<dyn ListingIntegrationPort>,
 }
 
 impl ListingIntegrationService {
-    pub fn new(pool: PgPool) -> Self {
-        Self {
-            repo: Arc::new(PostgresListingIntegrationRepository::new(pool)),
-        }
+    pub fn new(repo: Arc<dyn ListingIntegrationPort>) -> Self {
+        Self { repo }
     }
 }
 
@@ -54,16 +50,15 @@ impl ListingIntegrationPort for ListingIntegrationService {
         self.repo.update_ends_at(listing_id, new_ends_at).await
     }
 
-    // Async via message queue (not yet implemented)
     async fn update_current_price(
         &self,
-        _id: Uuid,
-        _new_price: i64,
+        id: Uuid,
+        new_price: i64,
     ) -> Result<(), ListingError> {
-        Ok(())
+        self.repo.update_current_price(id, new_price).await
     }
 
-    async fn increment_bid_count(&self, _id: Uuid) -> Result<(), ListingError> {
-        Ok(())
+    async fn increment_bid_count(&self, id: Uuid) -> Result<(), ListingError> {
+        self.repo.increment_bid_count(id).await
     }
 }

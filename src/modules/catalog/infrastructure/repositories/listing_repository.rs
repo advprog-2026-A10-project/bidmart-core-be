@@ -194,4 +194,24 @@ impl ListingRepository for PostgresListingRepository {
         }
         Ok(())
     }
+
+    async fn publish_listing(&self, id: Uuid) -> Result<Listing, ListingError> {
+        sqlx::query_as::<_, Listing>(
+            r#"
+            UPDATE listings
+            SET status = 'ACTIVE', updated_at = NOW()
+            WHERE id = $1 AND status = 'DRAFT'
+            RETURNING
+                id, seller_id, seller_name, category_id, category_name,
+                title, description, start_price, reserve_price, current_price,
+                min_increment, bid_count, status, auction_id,
+                starts_at, ends_at, created_at, updated_at
+            "#,
+        )
+        .bind(id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(ListingError::DatabaseError)?
+        .ok_or(ListingError::NotPublishable)
+    }
 }

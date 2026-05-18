@@ -54,4 +54,9 @@ pub trait ListingRepository: Send + Sync {
         &self,
         id: Uuid,
     ) -> Result<(), ListingError>;
+
+    async fn publish_listing(
+        &self,
+        id: Uuid,
+    ) -> Result<Listing, ListingError>;
 }

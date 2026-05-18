@@ -59,9 +59,18 @@ pub struct BuyerListingDetailResponse {
 pub struct PublicListingQueryParams {
     pub q: Option<String>,
     pub category_id: Option<i32>,
+    #[serde(rename = "min")]
     pub min_price: Option<i64>,
+    #[serde(rename = "max")]
     pub max_price: Option<i64>,
+    #[serde(rename = "endBefore")]
     pub end_before: Option<DateTime<Utc>>,
+    pub page: Option<i64>,
+    pub page_size: Option<i64>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+pub struct CatalogPageParams {
     pub page: Option<i64>,
     pub page_size: Option<i64>,
 }

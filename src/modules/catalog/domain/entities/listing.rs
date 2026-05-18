@@ -34,3 +34,13 @@ pub struct Listing {
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
+
+impl Listing {
+    pub fn has_bids(&self) -> bool {
+        self.bid_count > 0
+    }
+
+    pub fn is_mutable_by_seller(&self) -> bool {
+        matches!(self.status, ListingStatus::Draft | ListingStatus::Active) && !self.has_bids()
+    }
+}

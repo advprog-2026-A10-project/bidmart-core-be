@@ -5,6 +5,15 @@ use crate::modules::catalog::domain::entities::Category;
 use crate::modules::catalog::domain::errors::CategoryError;
 use crate::modules::catalog::domain::traits::CategoryRepository;
 
+fn map_category_db_error(e: sqlx::Error) -> CategoryError {
+    match &e {
+        sqlx::Error::Database(db) if db.code().as_deref() == Some("23505") => {
+            CategoryError::AlreadyExists
+        }
+        _ => CategoryError::DatabaseError(e),
+    }
+}
+
 pub struct PostgresCategoryRepository {
     pool: PgPool,
 }
@@ -88,7 +97,7 @@ impl CategoryRepository for PostgresCategoryRepository {
         .bind(image_url)
         .fetch_one(&mut *tx)
         .await
-        .map_err(CategoryError::DatabaseError)?;
+        .map_err(map_category_db_error)?;
 
         // Keep parent's child_count in sync
         if let Some(pid) = parent_id {
@@ -130,7 +139,7 @@ impl CategoryRepository for PostgresCategoryRepository {
         .bind(image_url)
         .fetch_optional(&self.pool)
         .await
-        .map_err(CategoryError::DatabaseError)?
+        .map_err(map_category_db_error)?
         .ok_or(CategoryError::NotFound)
     }
 
@@ -176,10 +185,11 @@ impl CategoryRepository for PostgresCategoryRepository {
         let rows: Vec<(i32,)> = sqlx::query_as(
             r#"
             WITH RECURSIVE subtree AS (
-                SELECT id FROM categories WHERE id = $1
+                SELECT id, 1 AS depth FROM categories WHERE id = $1
                 UNION ALL
-                SELECT c.id FROM categories c
+                SELECT c.id, s.depth + 1 FROM categories c
                 INNER JOIN subtree s ON c.parent_id = s.id
+                WHERE s.depth < 50
             )
             SELECT id FROM subtree
             "#,
