@@ -9,6 +9,7 @@ pub struct AppConfig {
     pub server_port: u16,
     pub database_url: String,
     pub auth_base_url: String,
+    pub auto_migrate_on_startup: bool,
 }
 
 impl AppConfig {
@@ -57,11 +58,24 @@ impl AppConfig {
             .or_else(|_| std::env::var("app_auth_base_url"))
             .map_err(|_| ConfigError::Message("Missing APP_AUTH_BASE_URL".to_string()))?;
 
+        let auto_migrate_on_startup = match std::env::var("APP_AUTO_MIGRATE_ON_STARTUP")
+            .or_else(|_| std::env::var("APP_auto_migrate_on_startup"))
+            .or_else(|_| std::env::var("app_auto_migrate_on_startup"))
+        {
+            Ok(raw) => raw.parse::<bool>().map_err(|_| {
+                ConfigError::Message(
+                    "Invalid APP_AUTO_MIGRATE_ON_STARTUP (expected true/false)".to_string(),
+                )
+            })?,
+            Err(_) => false,
+        };
+
         Ok(AppConfig {
             server_host,
             server_port,
             database_url,
             auth_base_url,
+            auto_migrate_on_startup,
         })
     }
 }

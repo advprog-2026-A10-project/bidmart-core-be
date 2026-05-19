@@ -23,6 +23,7 @@ Dokumen ini adalah panduan setup `bidmart-core-be` sesuai kondisi aktual codebas
 - Catalog contract freeze iterasi core-1: [`docs/CATALOG_ITER1_CONTRACT.md`](./docs/CATALOG_ITER1_CONTRACT.md)
 - Bidding contract freeze iterasi core-3: [`docs/BIDDING_ITER1_CONTRACT.md`](./docs/BIDDING_ITER1_CONTRACT.md)
 - Wallet contract freeze iterasi core-2: [`docs/WALLET_ITER1_CONTRACT.md`](./docs/WALLET_ITER1_CONTRACT.md)
+- Staging logical replication runbook: [`docs/STAGING_LOGICAL_REPLICATION_RUNBOOK.md`](./docs/STAGING_LOGICAL_REPLICATION_RUNBOOK.md)
 
 ## Directory Structure (ringkas)
 
@@ -56,6 +57,7 @@ APP_SERVER_HOST=0.0.0.0
 APP_SERVER_PORT=8081
 APP_DATABASE_URL=postgres://postgres:password@localhost:5432/bidmart_core
 APP_AUTH_BASE_URL=http://localhost:8080
+APP_AUTO_MIGRATE_ON_STARTUP=false
 APP_BIDDING_FINALIZER_INTERVAL_SECS=5
 APP_BIDDING_FINALIZER_BATCH_SIZE=25
 ```
@@ -129,8 +131,41 @@ Order masih menggunakan endpoint root saat ini; kontrak detail akan dibekukan pa
 
 ```bash
 cargo build
+cargo run --bin migrate
 cargo run
 ```
+
+## Deployment Migration Step (Recommended)
+
+Gunakan step migrasi eksplisit untuk deployment (terutama di Docker Compose), lalu baru start API:
+
+```bash
+# one-shot migration task
+cargo run --bin migrate
+
+# start API service
+cargo run
+```
+
+Contoh dependency di Compose:
+
+```yaml
+services:
+  core-be-migrate:
+    image: ghcr.io/<org>/bidmart-core-be:<tag>
+    command: ["/usr/local/bin/migrate"]
+    environment:
+      APP_DATABASE_URL: ${CORE_DATABASE_URL}
+      APP_AUTH_BASE_URL: ${AUTH_BASE_URL}
+
+  core-be:
+    image: ghcr.io/<org>/bidmart-core-be:<tag>
+    depends_on:
+      core-be-migrate:
+        condition: service_completed_successfully
+```
+
+`APP_AUTO_MIGRATE_ON_STARTUP=true` tersedia sebagai fallback, tetapi untuk staging/production tetap disarankan `false` dan menggunakan migration job terpisah.
 
 ## Tests
 

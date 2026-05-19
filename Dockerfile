@@ -1,7 +1,7 @@
 ﻿FROM rust:1.85-bookworm AS builder
 WORKDIR /app
 COPY . .
-RUN cargo build --release
+RUN cargo build --release --bins
 
 FROM debian:bookworm-slim
 RUN apt-get update \
@@ -9,6 +9,7 @@ RUN apt-get update \
   && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=builder /app/target/release/bidmart-core-be /usr/local/bin/app
+COPY --from=builder /app/target/release/migrate /usr/local/bin/migrate
 EXPOSE 8080
 ENV RUST_LOG=info
 CMD ["/usr/local/bin/app"]

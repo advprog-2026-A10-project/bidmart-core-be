@@ -7,6 +7,7 @@ use tokio::net::TcpListener;
 
 use infrastructure::config::AppConfig;
 use infrastructure::database::create_pool;
+use infrastructure::database::migrations::run_pending_migrations;
 use infrastructure::logger::init_tracer;
 use modules::bidding::create_router as create_bidding_router;
 use modules::bidding::infrastructure::lifecycle::spawn_auto_finalize_worker;
@@ -23,6 +24,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let config = AppConfig::new().expect("Failed to load configuration from .env file");
     let pool = create_pool(&config.database_url).await?;
+    if config.auto_migrate_on_startup {
+        tracing::info!("APP_AUTO_MIGRATE_ON_STARTUP=true, running pending migrations");
+        run_pending_migrations(&pool).await?;
+    }
 
     let catalog_state = AppState::new(pool.clone(), config.auth_base_url.clone());
     let bidding_state = BiddingAppState::new(pool.clone(), config.auth_base_url.clone());
