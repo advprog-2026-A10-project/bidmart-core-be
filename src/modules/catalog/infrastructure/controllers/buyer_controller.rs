@@ -5,8 +5,7 @@ use axum::{
 use uuid::Uuid;
 
 use crate::modules::catalog::application::dto::buyer_listing_dto::{
-    BuyerListingDetailResponse, BuyerListingResponse, CatalogPageParams,
-    PublicListingQueryParams,
+    BuyerListingDetailResponse, BuyerListingResponse, CatalogPageParams, PublicListingQueryParams,
 };
 use crate::modules::catalog::application::dto::listing_dto::PaginatedResponse;
 use crate::modules::catalog::domain::errors::ListingError;
@@ -30,17 +29,17 @@ pub async fn get_public_listing(
     Ok(Json(result))
 }
 
-// GET /api/v1/c/:slug
-pub async fn browse_by_category_slug(
+// GET /api/v1/c/*category_path
+pub async fn browse_by_category_path(
     State(state): State<AppState>,
-    Path(slug): Path<String>,
+    Path(category_path): Path<String>,
     axum::extract::Query(params): axum::extract::Query<CatalogPageParams>,
 ) -> Result<Json<PaginatedResponse<BuyerListingResponse>>, ListingError> {
     let page = params.page.unwrap_or(1);
     let page_size = params.page_size.unwrap_or(20);
     let result = state
         .buyer_listing_use_cases
-        .browse_by_category_slug(slug, page, page_size)
+        .browse_by_category_path(&category_path, page, page_size)
         .await?;
     Ok(Json(result))
 }

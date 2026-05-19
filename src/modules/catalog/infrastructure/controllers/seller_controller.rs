@@ -6,8 +6,8 @@ use axum::{
 use uuid::Uuid;
 
 use crate::modules::catalog::application::dto::listing_dto::{
-    CreateListingRequest, ListingDetailResponse, ListingQueryParams,
-    ListingResponse, PaginatedResponse, UpdateListingRequest,
+    CreateListingRequest, ListingDetailResponse, ListingQueryParams, ListingResponse,
+    PaginatedResponse, UpdateListingRequest,
 };
 use crate::modules::catalog::domain::errors::ListingError;
 use crate::modules::catalog::infrastructure::middleware::AuthUser;
@@ -19,7 +19,10 @@ pub async fn list_my_listings(
     Extension(auth): Extension<AuthUser>,
     axum::extract::Query(params): axum::extract::Query<ListingQueryParams>,
 ) -> Result<Json<PaginatedResponse<ListingResponse>>, ListingError> {
-    let result = state.listing_use_cases.list_my_listings(auth.id, params).await?;
+    let result = state
+        .listing_use_cases
+        .list_my_listings(auth.id, params)
+        .await?;
     Ok(Json(result))
 }
 
@@ -29,7 +32,10 @@ pub async fn create_listing(
     Extension(auth): Extension<AuthUser>,
     Json(body): Json<CreateListingRequest>,
 ) -> Result<(StatusCode, Json<ListingDetailResponse>), ListingError> {
-    let result = state.listing_use_cases.create_listing(auth.id, auth.name, body).await?;
+    let result = state
+        .listing_use_cases
+        .create_listing(auth.id, auth.name, body)
+        .await?;
     Ok((StatusCode::CREATED, Json(result)))
 }
 
@@ -50,7 +56,10 @@ pub async fn update_listing(
     Path(id): Path<Uuid>,
     Json(body): Json<UpdateListingRequest>,
 ) -> Result<Json<ListingDetailResponse>, ListingError> {
-    let result = state.listing_use_cases.update_listing(auth.id, id, body).await?;
+    let result = state
+        .listing_use_cases
+        .update_listing(auth.id, id, body)
+        .await?;
     Ok(Json(result))
 }
 

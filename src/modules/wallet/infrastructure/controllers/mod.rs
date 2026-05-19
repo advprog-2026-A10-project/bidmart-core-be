@@ -4,11 +4,12 @@ use axum::{
     extract::{Query, State},
     Json,
 };
+use reqwest::Client;
 use serde::Deserialize;
 
 use crate::modules::wallet::application::dto::{
-    InternalHoldRequest, InternalHoldResponse, TopupRequest, TopupResponse, TransactionListResponse,
-    WalletBalanceResponse, WithdrawRequest, WithdrawResponse,
+    InternalHoldRequest, InternalHoldResponse, TopupRequest, TopupResponse,
+    TransactionListResponse, WalletBalanceResponse, WithdrawRequest, WithdrawResponse,
 };
 use crate::modules::wallet::application::use_cases::WalletUseCases;
 use crate::modules::wallet::domain::errors::WalletError;
@@ -17,6 +18,8 @@ use crate::modules::wallet::infrastructure::middleware::{AuthUser, InternalAuth}
 #[derive(Clone)]
 pub struct WalletAppState {
     pub use_cases: Arc<WalletUseCases>,
+    pub auth_base_url: String,
+    pub auth_http_client: Client,
 }
 
 pub async fn get_balance(
@@ -48,6 +51,7 @@ pub async fn withdraw(
 #[derive(Deserialize)]
 pub struct PaginationQuery {
     pub page: Option<i64>,
+    #[serde(alias = "page_size")]
     #[serde(rename = "pageSize")]
     pub page_size: Option<i64>,
 }
@@ -59,12 +63,12 @@ pub async fn get_transactions(
 ) -> Result<Json<TransactionListResponse>, WalletError> {
     let page = query.page.unwrap_or(1);
     let page_size = query.page_size.unwrap_or(50);
-    
+
     let response = state
         .use_cases
         .list_transactions(user.user_id, page, page_size)
         .await?;
-        
+
     Ok(Json(response))
 }
 
@@ -73,7 +77,10 @@ pub async fn get_transaction_by_id(
     user: AuthUser,
     axum::extract::Path(transaction_id): axum::extract::Path<uuid::Uuid>,
 ) -> Result<Json<crate::modules::wallet::application::dto::TransactionDto>, WalletError> {
-    let response = state.use_cases.get_transaction_by_id(user.user_id, transaction_id).await?;
+    let response = state
+        .use_cases
+        .get_transaction_by_id(user.user_id, transaction_id)
+        .await?;
     Ok(Json(response))
 }
 

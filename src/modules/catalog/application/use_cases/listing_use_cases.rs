@@ -10,8 +10,8 @@ use crate::modules::catalog::domain::traits::{
 };
 
 use crate::modules::catalog::application::dto::listing_dto::{
-    CreateListingRequest, ListingDetailResponse, ListingImageResponse,
-    ListingQueryParams, ListingResponse, PaginatedResponse, UpdateListingRequest,
+    CreateListingRequest, ListingDetailResponse, ListingImageResponse, ListingQueryParams,
+    ListingResponse, PaginatedResponse, UpdateListingRequest,
 };
 
 const MAX_IMAGES: usize = 10;
@@ -57,7 +57,11 @@ impl ListingUseCases {
         image_repo: Arc<dyn ListingImageRepository>,
         category_repo: Arc<dyn CategoryRepository>,
     ) -> Self {
-        Self { listing_repo, image_repo, category_repo }
+        Self {
+            listing_repo,
+            image_repo,
+            category_repo,
+        }
     }
 
     pub async fn create_listing(
@@ -67,7 +71,9 @@ impl ListingUseCases {
         req: CreateListingRequest,
     ) -> Result<ListingDetailResponse, ListingError> {
         if req.title.trim().is_empty() {
-            return Err(ListingError::ValidationError("Title cannot be empty".to_string()));
+            return Err(ListingError::ValidationError(
+                "Title cannot be empty".to_string(),
+            ));
         }
         if req.start_price <= 0 {
             return Err(ListingError::ValidationError(
@@ -184,7 +190,7 @@ impl ListingUseCases {
             page_size,
         })
     }
-    
+
     pub async fn get_my_listing(
         &self,
         seller_id: Uuid,

@@ -18,29 +18,44 @@ use crate::modules::wallet::infrastructure::controllers::{
 };
 use crate::modules::wallet::infrastructure::repositories::PostgresWalletRepository;
 
-pub fn create_router(pool: PgPool) -> Router {
+fn public_wallet_routes() -> Router<WalletAppState> {
+    Router::new()
+        .route("/wallet", get(get_balance))
+        .route("/wallet/topup", post(topup))
+        .route("/wallet/withdraw", post(withdraw))
+        .route("/wallet/transactions", get(get_transactions))
+        .route(
+            "/wallet/transactions/:transactionId",
+            get(get_transaction_by_id),
+        )
+}
+
+fn internal_wallet_routes() -> Router<WalletAppState> {
+    Router::new()
+        .route("/internal/wallet/holds", post(internal_hold))
+        .route("/internal/wallet/release", post(internal_release))
+        .route("/internal/wallet/payment", post(internal_payment))
+}
+
+pub fn create_router(pool: PgPool, auth_base_url: String) -> Router {
     let repo = Arc::new(PostgresWalletRepository::new(Arc::new(pool)));
     let use_cases = Arc::new(WalletUseCases::new(repo));
 
-    let state = WalletAppState { use_cases };
+    let state = WalletAppState {
+        use_cases,
+        auth_base_url,
+        auth_http_client: reqwest::Client::new(),
+    };
 
+    // Keep `/api/core/v1` as compatibility alias while standardizing under `/api/v1`.
     Router::new()
-        .route("/api/core/v1/wallet", get(get_balance))
-        .route("/api/core/v1/wallet/topup", post(topup))
-        .route("/api/core/v1/wallet/withdraw", post(withdraw))
-        .route("/api/core/v1/wallet/transactions", get(get_transactions))
-        .route(
-            "/api/core/v1/wallet/transactions/:transactionId",
-            get(get_transaction_by_id),
+        .nest(
+            "/api/v1",
+            public_wallet_routes().merge(internal_wallet_routes()),
         )
-        .route("/api/core/v1/internal/wallet/holds", post(internal_hold))
-        .route(
-            "/api/core/v1/internal/wallet/release",
-            post(internal_release),
-        )
-        .route(
-            "/api/core/v1/internal/wallet/payment",
-            post(internal_payment),
+        .nest(
+            "/api/core/v1",
+            public_wallet_routes().merge(internal_wallet_routes()),
         )
         .with_state(state)
 }

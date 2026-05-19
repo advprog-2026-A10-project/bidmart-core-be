@@ -16,10 +16,14 @@ pub struct TransactionDto {
     #[serde(rename = "txId")]
     pub tx_id: Uuid,
     pub r#type: String,
+    pub status: String,
     #[serde(rename = "amountCents")]
     pub amount_cents: i64,
+    #[serde(rename = "balanceAfterCents")]
+    pub balance_after_cents: i64,
     #[serde(rename = "createdAt")]
     pub created_at: Option<DateTime<Utc>>,
+    #[serde(rename = "refInfo")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ref_info: Option<ReferenceDto>,
 }

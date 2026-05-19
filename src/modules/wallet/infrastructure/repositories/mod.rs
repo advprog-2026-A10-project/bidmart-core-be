@@ -1,11 +1,12 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use rust_decimal::Decimal;
 use sqlx::PgPool;
 use uuid::Uuid;
 
-use crate::modules::wallet::domain::entities::{TransactionType, Wallet, WalletTransaction};
+use crate::modules::wallet::domain::entities::{
+    ReferenceType, TransactionStatus, TransactionType, Wallet, WalletTransaction,
+};
 use crate::modules::wallet::domain::errors::WalletError;
 use crate::modules::wallet::domain::traits::WalletRepository;
 
@@ -54,8 +55,8 @@ impl WalletRepository for PostgresWalletRepository {
     async fn update_balances(
         &self,
         user_id: Uuid,
-        balance_delta: Decimal,
-        held_delta: Decimal,
+        balance_delta: i64,
+        held_delta: i64,
     ) -> Result<Wallet, WalletError> {
         let wallet = sqlx::query_as::<_, Wallet>(
             r#"
@@ -64,36 +65,57 @@ impl WalletRepository for PostgresWalletRepository {
                 held_balance = held_balance + $3,
                 updated_at = CURRENT_TIMESTAMP
             WHERE user_id = $1
+              AND (balance + $2) >= 0
+              AND (held_balance + $3) >= 0
+              AND (held_balance + $3) <= (balance + $2)
             RETURNING user_id, balance, held_balance, updated_at
             "#,
         )
         .bind(user_id)
         .bind(balance_delta)
         .bind(held_delta)
-        .fetch_one(&*self.pool)
+        .fetch_optional(&*self.pool)
         .await?;
 
-        Ok(wallet)
+        wallet.ok_or(WalletError::InsufficientBalance)
     }
 
     async fn create_transaction(
         &self,
         wallet_id: Uuid,
         tx_type: TransactionType,
-        amount: Decimal,
+        status: TransactionStatus,
+        amount: i64,
+        balance_after: i64,
         reference_id: Option<Uuid>,
+        reference_type: Option<ReferenceType>,
+        description: String,
     ) -> Result<WalletTransaction, WalletError> {
         let transaction = sqlx::query_as::<_, WalletTransaction>(
             r#"
-            INSERT INTO wallet_transactions (wallet_id, type, amount, reference_id)
-            VALUES ($1, $2, $3, $4)
-            RETURNING id, wallet_id, type, amount, reference_id, created_at
+            INSERT INTO wallet_transactions (
+                wallet_id,
+                type,
+                status,
+                amount,
+                balance_after,
+                reference_id,
+                reference_type,
+                description,
+                completed_at
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CASE WHEN $3 = 'COMPLETED'::transaction_status THEN CURRENT_TIMESTAMP ELSE NULL END)
+            RETURNING id, wallet_id, type, status, amount, balance_after, reference_id, reference_type, description, created_at, completed_at
             "#,
         )
         .bind(wallet_id)
         .bind(tx_type)
+        .bind(status)
         .bind(amount)
+        .bind(balance_after)
         .bind(reference_id)
+        .bind(reference_type)
+        .bind(description)
         .fetch_one(&*self.pool)
         .await?;
 
@@ -121,7 +143,7 @@ impl WalletRepository for PostgresWalletRepository {
 
         let transactions = sqlx::query_as::<_, WalletTransaction>(
             r#"
-            SELECT id, wallet_id, type, amount, reference_id, created_at
+            SELECT id, wallet_id, type, status, amount, balance_after, reference_id, reference_type, description, created_at, completed_at
             FROM wallet_transactions
             WHERE wallet_id = $1
             ORDER BY created_at DESC
@@ -144,7 +166,7 @@ impl WalletRepository for PostgresWalletRepository {
     ) -> Result<Option<WalletTransaction>, WalletError> {
         let transaction = sqlx::query_as::<_, WalletTransaction>(
             r#"
-            SELECT id, wallet_id, type, amount, reference_id, created_at
+            SELECT id, wallet_id, type, status, amount, balance_after, reference_id, reference_type, description, created_at, completed_at
             FROM wallet_transactions
             WHERE wallet_id = $1 AND id = $2
             "#,

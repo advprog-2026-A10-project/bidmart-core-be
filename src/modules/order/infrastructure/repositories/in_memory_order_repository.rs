@@ -55,7 +55,7 @@ impl OrderRepository for Arc<InMemoryOrderRepository> {
             .find(|order| order.id == order_id)
             .ok_or(OrderError::NotFound)?;
 
-        if order.status == OrderStatus::Delivered {
+        if order.status != OrderStatus::NeedsConfirmation {
             return Err(OrderError::InvalidTransition);
         }
 
@@ -79,15 +79,26 @@ impl OrderRepository for Arc<InMemoryOrderRepository> {
             .find(|order| order.id == order_id)
             .ok_or(OrderError::NotFound)?;
 
+        match order.status {
+            OrderStatus::InTransit | OrderStatus::NeedsConfirmation | OrderStatus::DisputeAlert => {
+            }
+            _ => return Err(OrderError::InvalidTransition),
+        }
+
         order.status = OrderStatus::DisputeAlert;
         order.stage = OrderStage::Processing;
         order.updated_at = Utc::now().to_rfc3339();
         order.last_activity = "Dispute opened by buyer".into();
+        order.tags.retain(|tag| {
+            !tag.starts_with("Dispute reason: ") && !tag.starts_with("Dispute details: ")
+        });
         order
             .tags
             .push(format!("Dispute reason: {}", reason.trim()));
         if let Some(extra_details) = details.map(str::trim).filter(|value| !value.is_empty()) {
-            order.tags.push(format!("Dispute details: {}", extra_details));
+            order
+                .tags
+                .push(format!("Dispute details: {}", extra_details));
         }
         Ok(())
     }
@@ -107,11 +118,23 @@ impl OrderRepository for Arc<InMemoryOrderRepository> {
         let normalized = status.trim().to_lowercase();
         match normalized.as_str() {
             "in_transit" | "in transit" | "shipped" | "packed" => {
+                if !matches!(
+                    order.status,
+                    OrderStatus::AwaitingPayment | OrderStatus::InTransit
+                ) {
+                    return Err(OrderError::InvalidTransition);
+                }
                 order.status = OrderStatus::InTransit;
                 order.stage = OrderStage::Processing;
                 order.last_activity = "Seller updated shipment status".into();
             }
             "needs_confirmation" | "needs confirmation" | "delivered" => {
+                if !matches!(
+                    order.status,
+                    OrderStatus::InTransit | OrderStatus::NeedsConfirmation
+                ) {
+                    return Err(OrderError::InvalidTransition);
+                }
                 order.status = OrderStatus::NeedsConfirmation;
                 order.stage = OrderStage::Processing;
                 order.last_activity = "Package delivered, waiting buyer confirmation".into();

@@ -2,8 +2,8 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::modules::catalog::domain::entities::{Listing, ListingStatus};
 use crate::modules::catalog::application::dto::listing_dto::ListingImageResponse;
+use crate::modules::catalog::domain::entities::{Listing, ListingStatus};
 
 #[derive(Debug, Serialize)]
 pub struct BuyerListingResponse {
@@ -66,11 +66,13 @@ pub struct PublicListingQueryParams {
     #[serde(rename = "endBefore")]
     pub end_before: Option<DateTime<Utc>>,
     pub page: Option<i64>,
+    #[serde(alias = "pageSize")]
     pub page_size: Option<i64>,
 }
 
 #[derive(Debug, Deserialize, Default)]
 pub struct CatalogPageParams {
     pub page: Option<i64>,
+    #[serde(alias = "pageSize")]
     pub page_size: Option<i64>,
 }

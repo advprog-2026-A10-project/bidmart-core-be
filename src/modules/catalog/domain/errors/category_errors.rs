@@ -23,22 +23,39 @@ pub enum CategoryError {
 
 impl axum::response::IntoResponse for CategoryError {
     fn into_response(self) -> axum::response::Response {
-        let (status, message) = match self {
-            CategoryError::NotFound | CategoryError::ParentNotFound => {
-                (axum::http::StatusCode::NOT_FOUND, self.to_string())
+        match self {
+            CategoryError::ValidationError(message) => {
+                let body = axum::Json(serde_json::json!({
+                    "message": "Validation failed",
+                    "errors": {
+                        "request": [message]
+                    }
+                }));
+                (axum::http::StatusCode::UNPROCESSABLE_ENTITY, body).into_response()
             }
-            CategoryError::AlreadyExists => {
-                (axum::http::StatusCode::CONFLICT, self.to_string())
+            other => {
+                let (status, message) = match other {
+                    CategoryError::NotFound => (
+                        axum::http::StatusCode::NOT_FOUND,
+                        "Category not found".to_string(),
+                    ),
+                    CategoryError::ParentNotFound => (
+                        axum::http::StatusCode::NOT_FOUND,
+                        "Parent category not found".to_string(),
+                    ),
+                    CategoryError::AlreadyExists => (
+                        axum::http::StatusCode::CONFLICT,
+                        "Category already exists".to_string(),
+                    ),
+                    CategoryError::DatabaseError(_) | CategoryError::InternalError(_) => (
+                        axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                        "Internal server error".to_string(),
+                    ),
+                    CategoryError::ValidationError(_) => unreachable!(),
+                };
+                let body = axum::Json(serde_json::json!({ "message": message }));
+                (status, body).into_response()
             }
-            CategoryError::ValidationError(_) => {
-                (axum::http::StatusCode::BAD_REQUEST, self.to_string())
-            }
-            CategoryError::DatabaseError(_) | CategoryError::InternalError(_) => (
-                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                "Internal server error".to_string(),
-            ),
-        };
-        let body = axum::Json(serde_json::json!({ "error": message }));
-        (status, body).into_response()
+        }
     }
 }

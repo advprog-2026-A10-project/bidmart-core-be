@@ -34,10 +34,7 @@ pub trait ListingRepository: Send + Sync {
         ends_at: DateTime<Utc>,
     ) -> Result<Listing, ListingError>;
 
-    async fn get_listing(
-        &self,
-        id: Uuid,
-    ) -> Result<Option<Listing>, ListingError>;
+    async fn get_listing(&self, id: Uuid) -> Result<Option<Listing>, ListingError>;
 
     async fn list_listings(
         &self,
@@ -50,13 +47,7 @@ pub trait ListingRepository: Send + Sync {
         description: Option<String>,
     ) -> Result<Listing, ListingError>;
 
-    async fn cancel_listing(
-        &self,
-        id: Uuid,
-    ) -> Result<(), ListingError>;
+    async fn cancel_listing(&self, id: Uuid) -> Result<(), ListingError>;
 
-    async fn publish_listing(
-        &self,
-        id: Uuid,
-    ) -> Result<Listing, ListingError>;
+    async fn publish_listing(&self, id: Uuid) -> Result<Listing, ListingError>;
 }

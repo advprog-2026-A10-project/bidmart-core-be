@@ -1,4 +1,5 @@
-use axum::{middleware::from_fn, routing, Router};
+use axum::{middleware::from_fn_with_state, routing, Router};
+use reqwest::Client;
 use sqlx::postgres::PgPool;
 use std::sync::Arc;
 
@@ -7,15 +8,15 @@ pub mod middleware;
 pub mod repositories;
 pub mod services;
 
-use controllers::{buyer_controller, category_controller, seller_controller, internal_controller};
+use controllers::{buyer_controller, category_controller, internal_controller, seller_controller};
 use repositories::{
-    PostgresCategoryRepository, PostgresListingImageRepository, PostgresListingIntegrationRepository, PostgresListingRepository,
+    PostgresCategoryRepository, PostgresListingImageRepository,
+    PostgresListingIntegrationRepository, PostgresListingRepository,
 };
 use services::ListingIntegrationService;
 
 use crate::modules::catalog::application::use_cases::{
-    buyer_listing_use_cases::BuyerListingUseCases,
-    category_use_cases::CategoryUseCases,
+    buyer_listing_use_cases::BuyerListingUseCases, category_use_cases::CategoryUseCases,
     listing_use_cases::ListingUseCases,
 };
 use crate::modules::catalog::domain::traits::ListingIntegrationPort;
@@ -26,10 +27,12 @@ pub struct AppState {
     pub buyer_listing_use_cases: Arc<BuyerListingUseCases>,
     pub category_use_cases: Arc<CategoryUseCases>,
     pub integration_service: Arc<dyn ListingIntegrationPort>,
+    pub auth_base_url: String,
+    pub auth_http_client: Client,
 }
 
 impl AppState {
-    pub fn new(pool: PgPool) -> Self {
+    pub fn new(pool: PgPool, auth_base_url: String) -> Self {
         let listing_repo = Arc::new(PostgresListingRepository::new(pool.clone()));
         let image_repo = Arc::new(PostgresListingImageRepository::new(pool.clone()));
         let category_repo = Arc::new(PostgresCategoryRepository::new(pool.clone()));
@@ -49,6 +52,8 @@ impl AppState {
             )),
             category_use_cases: Arc::new(CategoryUseCases::new(category_repo)),
             integration_service: Arc::new(ListingIntegrationService::new(integration_repo)),
+            auth_base_url,
+            auth_http_client: Client::new(),
         }
     }
 }
@@ -70,13 +75,13 @@ pub fn create_router(state: AppState) -> Router {
             "/seller/listings/:id/publish",
             routing::post(seller_controller::publish_listing),
         )
-        .layer(from_fn(middleware::require_auth));
+        .layer(from_fn_with_state(state.clone(), middleware::require_auth));
 
     let buyer_routes = Router::new()
         .route("/catalog", routing::get(buyer_controller::browse_catalog))
         .route(
-            "/c/:slug",
-            routing::get(buyer_controller::browse_by_category_slug),
+            "/c/*category_path",
+            routing::get(buyer_controller::browse_by_category_path),
         )
         .route(
             "/listings/:id",

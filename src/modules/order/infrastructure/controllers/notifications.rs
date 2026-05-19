@@ -1,6 +1,6 @@
 use axum::{
     extract::{Path, Query, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     response::IntoResponse,
     routing::{get, patch},
     Json, Router,
@@ -15,6 +15,9 @@ use crate::modules::order::application::use_cases::{
     GetNotificationUseCase, ListNotificationsUseCase, MarkNotificationUseCase,
 };
 use crate::modules::order::domain::errors::NotificationError;
+use crate::modules::order::infrastructure::middleware::{
+    resolve_authenticated_user_id, OptionalAuthError,
+};
 use crate::modules::order::infrastructure::AppState;
 
 #[derive(Deserialize)]
@@ -34,7 +37,7 @@ struct NotificationsListResponse<T> {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct MarkAsReadBody {
-    actor_id: String,
+    actor_id: Option<String>,
 }
 
 pub fn router() -> Router<AppState> {
@@ -46,10 +49,21 @@ pub fn router() -> Router<AppState> {
 
 async fn list_notifications(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Query(query): Query<NotificationsQuery>,
 ) -> impl IntoResponse {
+    let authenticated_user_id = match resolve_authenticated_user_id(&state, &headers).await {
+        Ok(value) => value,
+        Err(error) => return map_optional_auth_error(error).into_response(),
+    };
+    if !state.auth_base_url.trim().is_empty() && authenticated_user_id.is_none() {
+        return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
+    }
+
     let dto = ListNotificationsDto {
-        user_id: query.user_id,
+        user_id: authenticated_user_id
+            .map(|value| value.to_string())
+            .or(query.user_id),
         limit: query.limit,
         unread_only: query.unread_only.unwrap_or(false),
     };
@@ -74,8 +88,17 @@ async fn list_notifications(
 
 async fn get_notification(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path(notification_id): Path<String>,
 ) -> impl IntoResponse {
+    let authenticated_user_id = match resolve_authenticated_user_id(&state, &headers).await {
+        Ok(value) => value,
+        Err(error) => return map_optional_auth_error(error).into_response(),
+    };
+    if !state.auth_base_url.trim().is_empty() && authenticated_user_id.is_none() {
+        return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
+    }
+
     let notification_id = match Uuid::parse_str(&notification_id) {
         Ok(value) => value,
         Err(_) => return (StatusCode::BAD_REQUEST, "Invalid notification id").into_response(),
@@ -85,17 +108,52 @@ async fn get_notification(
     let use_case = GetNotificationUseCase::new(state.notification_repo.clone());
 
     match use_case.execute(dto).await {
-        Ok(notification) => (StatusCode::OK, Json(notification)).into_response(),
+        Ok(notification) => {
+            if let Some(user_id) = authenticated_user_id {
+                let user_id_text = user_id.to_string();
+                let owner = notification
+                    .metadata
+                    .as_ref()
+                    .and_then(|metadata| metadata.get("userId"))
+                    .and_then(|value| value.as_str());
+
+                if owner != Some(user_id_text.as_str()) {
+                    return (StatusCode::FORBIDDEN, "Forbidden").into_response();
+                }
+            }
+
+            (StatusCode::OK, Json(notification)).into_response()
+        }
         Err(_) => (StatusCode::NOT_FOUND, "Notification not found").into_response(),
     }
 }
 
 async fn mark_as_read(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path(notification_id): Path<String>,
     Json(body): Json<MarkAsReadBody>,
 ) -> impl IntoResponse {
-    if body.actor_id.trim().is_empty() {
+    let authenticated_user_id = match resolve_authenticated_user_id(&state, &headers).await {
+        Ok(value) => value,
+        Err(error) => return map_optional_auth_error(error).into_response(),
+    };
+    if !state.auth_base_url.trim().is_empty() && authenticated_user_id.is_none() {
+        return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
+    }
+
+    let actor_id = authenticated_user_id
+        .map(|value| value.to_string())
+        .or(body.actor_id.and_then(|value| {
+            let trimmed = value.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed.to_string())
+            }
+        }));
+
+    if actor_id.is_none() {
         return (StatusCode::BAD_REQUEST, "actor_id is required").into_response();
     }
 
@@ -106,7 +164,7 @@ async fn mark_as_read(
 
     let dto = MarkNotificationDto {
         notification_id,
-        actor_id: body.actor_id,
+        actor_id: actor_id.expect("checked actor id exists"),
     };
     let use_case = MarkNotificationUseCase::new(state.notification_repo.clone());
 
@@ -122,10 +180,22 @@ fn map_notification_error(
 ) -> (StatusCode, &'static str) {
     match error {
         NotificationError::NotFound => (StatusCode::NOT_FOUND, "Notification not found"),
-        NotificationError::AlreadyRead => (
-            StatusCode::CONFLICT,
-            "Notification already marked as read",
-        ),
+        NotificationError::AlreadyRead => {
+            (StatusCode::CONFLICT, "Notification already marked as read")
+        }
         NotificationError::Database(_) => (StatusCode::INTERNAL_SERVER_ERROR, fallback_message),
+    }
+}
+
+fn map_optional_auth_error(error: OptionalAuthError) -> (StatusCode, &'static str) {
+    match error {
+        OptionalAuthError::Unauthorized => (StatusCode::UNAUTHORIZED, "Unauthorized"),
+        OptionalAuthError::Upstream(message) => {
+            tracing::warn!("order notification auth validate upstream error: {message}");
+            (
+                StatusCode::BAD_GATEWAY,
+                "Authentication service unavailable",
+            )
+        }
     }
 }

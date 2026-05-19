@@ -32,27 +32,51 @@ pub enum ListingError {
 
 impl axum::response::IntoResponse for ListingError {
     fn into_response(self) -> axum::response::Response {
-        let (status, message) = match self {
-            ListingError::NotFound => {
-                (axum::http::StatusCode::NOT_FOUND, self.to_string())
+        match self {
+            ListingError::ValidationError(message) => {
+                let body = axum::Json(serde_json::json!({
+                    "message": "Validation failed",
+                    "errors": {
+                        "request": [message]
+                    }
+                }));
+                (axum::http::StatusCode::UNPROCESSABLE_ENTITY, body).into_response()
             }
-            ListingError::NotEditable
-            | ListingError::NotCancellable
-            | ListingError::NotPublishable => {
-                (axum::http::StatusCode::CONFLICT, self.to_string())
+            other => {
+                let (status, message) = match other {
+                    ListingError::NotFound => (
+                        axum::http::StatusCode::NOT_FOUND,
+                        "Listing not found".to_string(),
+                    ),
+                    ListingError::NotEditable => (
+                        axum::http::StatusCode::CONFLICT,
+                        "Listing cannot be edited in its current state".to_string(),
+                    ),
+                    ListingError::NotCancellable => (
+                        axum::http::StatusCode::CONFLICT,
+                        "Listing cannot be cancelled in its current state".to_string(),
+                    ),
+                    ListingError::NotPublishable => (
+                        axum::http::StatusCode::CONFLICT,
+                        "Listing cannot be published in its current state".to_string(),
+                    ),
+                    ListingError::NotActive => (
+                        axum::http::StatusCode::BAD_REQUEST,
+                        "Listing is not active".to_string(),
+                    ),
+                    ListingError::Unauthorized => (
+                        axum::http::StatusCode::FORBIDDEN,
+                        "Unauthorized".to_string(),
+                    ),
+                    ListingError::DatabaseError(_) | ListingError::InternalError(_) => (
+                        axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                        "Internal server error".to_string(),
+                    ),
+                    ListingError::ValidationError(_) => unreachable!(),
+                };
+                let body = axum::Json(serde_json::json!({ "message": message }));
+                (status, body).into_response()
             }
-            ListingError::NotActive | ListingError::ValidationError(_) => {
-                (axum::http::StatusCode::BAD_REQUEST, self.to_string())
-            }
-            ListingError::Unauthorized => {
-                (axum::http::StatusCode::FORBIDDEN, self.to_string())
-            }
-            ListingError::DatabaseError(_) | ListingError::InternalError(_) => (
-                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                "Internal server error".to_string(),
-            ),
-        };
-        let body = axum::Json(serde_json::json!({ "error": message }));
-        (status, body).into_response()
+        }
     }
 }

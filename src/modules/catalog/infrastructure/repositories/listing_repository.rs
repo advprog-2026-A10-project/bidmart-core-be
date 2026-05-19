@@ -56,7 +56,7 @@ impl ListingRepository for PostgresListingRepository {
         .bind(description)
         .bind(start_price)
         .bind(reserve_price)
-        .bind(start_price)   // $9 — current_price = start_price at creation
+        .bind(start_price) // $9 — current_price = start_price at creation
         .bind(min_increment)
         .bind(starts_at)
         .bind(ends_at)
