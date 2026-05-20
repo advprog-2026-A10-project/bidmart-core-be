@@ -1357,10 +1357,15 @@ pub async fn place_bid(
     .execute(&mut *tx)
     .await?;
 
+    // Anti-sniping (spec §3 / WBS 3.1.4): "perpanjangan 2 menit dari waktu
+    // penawaran tersebut diterima". When a bid lands in the last 2-minute
+    // window, the auction is extended so it has 2 full minutes from `now`
+    // remaining. `max(ends_at, ...)` keeps the existing end if it is somehow
+    // later than `now + 2 min`.
     let remaining = ends_at - now;
     let should_extend = remaining <= Duration::minutes(2);
     let next_ends_at = if should_extend {
-        ends_at + Duration::minutes(2)
+        std::cmp::max(ends_at, now + Duration::minutes(2))
     } else {
         ends_at
     };

@@ -6,7 +6,8 @@ use uuid::Uuid;
 use crate::modules::catalog::domain::entities::ListingStatus;
 use crate::modules::catalog::domain::errors::ListingError;
 use crate::modules::catalog::domain::traits::{
-    CategoryRepository, ListingFilter, ListingImageRepository, ListingRepository,
+    AuctionLifecyclePort, CategoryRepository, ListingFilter, ListingImageRepository,
+    ListingRepository,
 };
 
 use crate::modules::catalog::application::dto::listing_dto::{
@@ -49,6 +50,7 @@ pub struct ListingUseCases {
     listing_repo: Arc<dyn ListingRepository>,
     image_repo: Arc<dyn ListingImageRepository>,
     category_repo: Arc<dyn CategoryRepository>,
+    auction_lifecycle: Arc<dyn AuctionLifecyclePort>,
 }
 
 impl ListingUseCases {
@@ -56,11 +58,13 @@ impl ListingUseCases {
         listing_repo: Arc<dyn ListingRepository>,
         image_repo: Arc<dyn ListingImageRepository>,
         category_repo: Arc<dyn CategoryRepository>,
+        auction_lifecycle: Arc<dyn AuctionLifecyclePort>,
     ) -> Self {
         Self {
             listing_repo,
             image_repo,
             category_repo,
+            auction_lifecycle,
         }
     }
 
@@ -283,21 +287,38 @@ impl ListingUseCases {
         seller_id: Uuid,
         listing_id: Uuid,
     ) -> Result<ListingDetailResponse, ListingError> {
-        let listing = self
+        let existing = self
             .listing_repo
             .get_listing(listing_id)
             .await?
             .ok_or(ListingError::NotFound)?;
 
-        if listing.seller_id != seller_id {
+        if existing.seller_id != seller_id {
             return Err(ListingError::Unauthorized);
         }
-        if listing.status != ListingStatus::Draft {
-            return Err(ListingError::NotPublishable);
-        }
 
-        let published = self.listing_repo.publish_listing(listing_id).await?;
+        // Two acceptable entry states:
+        //  - DRAFT: flip listing to ACTIVE then start the auction.
+        //  - ACTIVE with `auction_id IS NULL`: a previous attempt published
+        //    the listing but failed before the auction was created. Recover by
+        //    starting the auction without changing the listing status.
+        // Any other state is not publishable.
+        let mut published = match existing.status {
+            ListingStatus::Draft => self.listing_repo.publish_listing(listing_id).await?,
+            ListingStatus::Active if existing.auction_id.is_none() => existing,
+            _ => return Err(ListingError::NotPublishable),
+        };
+
         let images = self.image_repo.get_listing_images(listing_id).await?;
+
+        if published.auction_id.is_none() {
+            let first_image_url = images.first().map(|image| image.url.clone());
+            let auction_id = self
+                .auction_lifecycle
+                .start_auction_for_listing(&published, first_image_url)
+                .await?;
+            published.auction_id = Some(auction_id);
+        }
 
         Ok(ListingDetailResponse {
             listing: ListingResponse::from(published),

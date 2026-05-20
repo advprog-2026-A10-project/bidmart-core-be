@@ -10,8 +10,8 @@ pub mod services;
 
 use controllers::{buyer_controller, category_controller, internal_controller, seller_controller};
 use repositories::{
-    PostgresCategoryRepository, PostgresListingImageRepository,
-    PostgresListingIntegrationRepository, PostgresListingRepository,
+    PostgresAuctionLifecycleRepository, PostgresCategoryRepository,
+    PostgresListingImageRepository, PostgresListingIntegrationRepository, PostgresListingRepository,
 };
 use services::ListingIntegrationService;
 
@@ -19,7 +19,7 @@ use crate::modules::catalog::application::use_cases::{
     buyer_listing_use_cases::BuyerListingUseCases, category_use_cases::CategoryUseCases,
     listing_use_cases::ListingUseCases,
 };
-use crate::modules::catalog::domain::traits::ListingIntegrationPort;
+use crate::modules::catalog::domain::traits::{AuctionLifecyclePort, ListingIntegrationPort};
 
 #[derive(Clone)]
 pub struct AppState {
@@ -38,12 +38,15 @@ impl AppState {
         let category_repo = Arc::new(PostgresCategoryRepository::new(pool.clone()));
         let integration_repo: Arc<dyn ListingIntegrationPort> =
             Arc::new(PostgresListingIntegrationRepository::new(pool.clone()));
+        let auction_lifecycle: Arc<dyn AuctionLifecyclePort> =
+            Arc::new(PostgresAuctionLifecycleRepository::new(pool.clone()));
 
         Self {
             listing_use_cases: Arc::new(ListingUseCases::new(
                 listing_repo.clone(),
                 image_repo.clone(),
                 category_repo.clone(),
+                auction_lifecycle,
             )),
             buyer_listing_use_cases: Arc::new(BuyerListingUseCases::new(
                 listing_repo.clone(),

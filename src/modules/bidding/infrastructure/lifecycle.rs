@@ -25,13 +25,61 @@ fn parse_env_i64(name: &str, default_value: i64) -> i64 {
         .unwrap_or(default_value)
 }
 
+async fn activate_scheduled_auctions(pool: &PgPool) -> Result<u64, BiddingError> {
+    // SCHEDULED → ACTIVE once `starts_at` has passed. Catalog creates the
+    // auction in SCHEDULED state when starts_at is in the future; this pass
+    // promotes it once the start time arrives.
+    let affected = sqlx::query(
+        r#"
+        UPDATE auctions
+        SET status = 'ACTIVE'::auction_status
+        WHERE status = 'SCHEDULED'::auction_status
+          AND starts_at <= CURRENT_TIMESTAMP
+        "#,
+    )
+    .execute(pool)
+    .await?
+    .rows_affected();
+    Ok(affected)
+}
+
+async fn close_ended_auctions(pool: &PgPool) -> Result<u64, BiddingError> {
+    // ACTIVE/EXTENDED → CLOSED once `ends_at` has passed. CLOSED is the
+    // observable intermediate state from the WBS lifecycle
+    // (DRAFT → ACTIVE → EXTENDED → CLOSED → WON/UNSOLD); finalize then
+    // resolves CLOSED to WON or UNSOLD based on the reserve outcome.
+    let affected = sqlx::query(
+        r#"
+        UPDATE auctions
+        SET status = 'CLOSED'::auction_status
+        WHERE status IN ('ACTIVE'::auction_status, 'EXTENDED'::auction_status)
+          AND ends_at <= CURRENT_TIMESTAMP
+        "#,
+    )
+    .execute(pool)
+    .await?
+    .rows_affected();
+    Ok(affected)
+}
+
 async fn run_auto_finalize_pass(pool: &PgPool, batch_size: i64) -> Result<usize, BiddingError> {
+    match activate_scheduled_auctions(pool).await {
+        Ok(0) => {}
+        Ok(n) => tracing::info!(activated = n, "scheduled auctions activated"),
+        Err(err) => tracing::error!(error = %err, "activate-scheduled pass error"),
+    }
+
+    match close_ended_auctions(pool).await {
+        Ok(0) => {}
+        Ok(n) => tracing::info!(closed = n, "ended auctions marked CLOSED"),
+        Err(err) => tracing::error!(error = %err, "close-ended pass error"),
+    }
+
     let auction_ids: Vec<Uuid> = sqlx::query_scalar(
         r#"
         SELECT id
         FROM auctions
-        WHERE status IN ('ACTIVE'::auction_status, 'EXTENDED'::auction_status, 'CLOSED'::auction_status)
-          AND ends_at <= CURRENT_TIMESTAMP
+        WHERE status = 'CLOSED'::auction_status
         ORDER BY ends_at ASC
         LIMIT $1
         "#,
