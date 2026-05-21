@@ -2,7 +2,10 @@ pub mod controllers;
 pub mod lifecycle;
 pub mod middleware;
 
-use axum::{middleware::from_fn_with_state, routing, Router};
+use axum::{
+    middleware::{from_fn, from_fn_with_state},
+    routing, Router,
+};
 use reqwest::Client;
 use sqlx::postgres::PgPool;
 
@@ -52,5 +55,7 @@ pub fn create_router(state: AppState) -> Router {
 
     Router::new()
         .nest("/api/v1", protected_routes)
+        // Per-module request tracer (scoped under `core_be.bidding.request`).
+        .layer(from_fn(middleware::request_trace))
         .with_state(state)
 }
