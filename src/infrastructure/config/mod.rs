@@ -78,7 +78,11 @@ impl AppConfig {
                     "Invalid APP_AUTO_MIGRATE_ON_STARTUP (expected true/false)".to_string(),
                 )
             })?,
-            Err(_) => false,
+            // Default ON so `cargo run` against a fresh database brings up
+            // the schema in one step. Production deployments should set
+            // `APP_AUTO_MIGRATE_ON_STARTUP=false` and use the dedicated
+            // `migrate` binary in a separate, controlled job.
+            Err(_) => true,
         };
 
         Ok(AppConfig {
