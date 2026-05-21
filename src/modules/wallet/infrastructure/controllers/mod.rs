@@ -20,6 +20,10 @@ pub struct WalletAppState {
     pub use_cases: Arc<WalletUseCases>,
     pub auth_base_url: String,
     pub auth_http_client: Client,
+    /// Shared secret required on the `X-Internal-Secret` header for every
+    /// `/internal/wallet/*` request. `None` disables the check (dev mode);
+    /// production deployments must set `APP_WALLET_INTERNAL_SECRET`.
+    pub internal_secret: Option<Arc<str>>,
 }
 
 pub async fn get_balance(
@@ -108,5 +112,14 @@ pub async fn internal_payment(
     Json(payload): Json<crate::modules::wallet::application::dto::InternalPaymentRequest>,
 ) -> Result<Json<crate::modules::wallet::application::dto::InternalPaymentResponse>, WalletError> {
     let response = state.use_cases.internal_payment(payload).await?;
+    Ok(Json(response))
+}
+
+pub async fn internal_credit(
+    State(state): State<WalletAppState>,
+    _auth: InternalAuth,
+    Json(payload): Json<crate::modules::wallet::application::dto::InternalCreditRequest>,
+) -> Result<Json<crate::modules::wallet::application::dto::InternalCreditResponse>, WalletError> {
+    let response = state.use_cases.internal_credit(payload).await?;
     Ok(Json(response))
 }

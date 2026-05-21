@@ -56,15 +56,46 @@ impl FromRequestParts<WalletAppState> for AuthUser {
 pub struct InternalAuth;
 
 #[async_trait]
-impl<S> FromRequestParts<S> for InternalAuth
-where
-    S: Send + Sync,
-{
+impl FromRequestParts<WalletAppState> for InternalAuth {
     type Rejection = (StatusCode, &'static str);
 
-    async fn from_request_parts(_parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
-        // MOCK INTERNAL AUTHENTICATION:
-        // A real implementation would check for a shared secret header or mTLS certificate.
-        Ok(InternalAuth)
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &WalletAppState,
+    ) -> Result<Self, Self::Rejection> {
+        // No secret configured → fall back to permissive dev mode but log a
+        // warning so it is visible in deployments where the env var was
+        // forgotten.
+        let Some(expected) = state.internal_secret.as_deref() else {
+            tracing::warn!(
+                "APP_WALLET_INTERNAL_SECRET is not configured; \
+                 /internal/wallet/* is unauthenticated (dev-only mode)."
+            );
+            return Ok(InternalAuth);
+        };
+
+        let provided = parts
+            .headers
+            .get("x-internal-secret")
+            .and_then(|value| value.to_str().ok())
+            .map(str::trim)
+            .unwrap_or_default();
+
+        // Constant-time comparison to avoid leaking secret length / prefix via
+        // timing. constant_time_eq is not in deps, so use a manual loop that
+        // walks the longer of the two strings.
+        let expected_bytes = expected.as_bytes();
+        let provided_bytes = provided.as_bytes();
+        let mut diff = (expected_bytes.len() ^ provided_bytes.len()) as u32;
+        for i in 0..expected_bytes.len().max(provided_bytes.len()) {
+            let a = expected_bytes.get(i).copied().unwrap_or(0);
+            let b = provided_bytes.get(i).copied().unwrap_or(0);
+            diff |= u32::from(a ^ b);
+        }
+        if diff == 0 {
+            Ok(InternalAuth)
+        } else {
+            Err((StatusCode::UNAUTHORIZED, "Invalid internal secret"))
+        }
     }
 }

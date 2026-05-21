@@ -13,8 +13,8 @@ use sqlx::PgPool;
 
 use crate::modules::wallet::application::use_cases::WalletUseCases;
 use crate::modules::wallet::infrastructure::controllers::{
-    get_balance, get_transaction_by_id, get_transactions, internal_hold, internal_payment,
-    internal_release, topup, withdraw, WalletAppState,
+    get_balance, get_transaction_by_id, get_transactions, internal_credit, internal_hold,
+    internal_payment, internal_release, topup, withdraw, WalletAppState,
 };
 use crate::modules::wallet::infrastructure::repositories::PostgresWalletRepository;
 
@@ -35,16 +35,24 @@ fn internal_wallet_routes() -> Router<WalletAppState> {
         .route("/internal/wallet/holds", post(internal_hold))
         .route("/internal/wallet/release", post(internal_release))
         .route("/internal/wallet/payment", post(internal_payment))
+        .route("/internal/wallet/credit", post(internal_credit))
 }
 
 pub fn create_router(pool: PgPool, auth_base_url: String) -> Router {
     let repo = Arc::new(PostgresWalletRepository::new(Arc::new(pool)));
     let use_cases = Arc::new(WalletUseCases::new(repo));
 
+    let internal_secret = std::env::var("APP_WALLET_INTERNAL_SECRET")
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .map(Arc::<str>::from);
+
     let state = WalletAppState {
         use_cases,
         auth_base_url,
         auth_http_client: reqwest::Client::new(),
+        internal_secret,
     };
 
     // Keep `/api/core/v1` as compatibility alias while standardizing under `/api/v1`.

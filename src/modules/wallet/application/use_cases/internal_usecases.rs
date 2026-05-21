@@ -1,9 +1,10 @@
 use super::WalletUseCases;
 use crate::modules::wallet::application::dto::{
-    InternalHoldRequest, InternalHoldResponse, InternalPaymentRequest, InternalPaymentResponse,
-    InternalReleaseRequest, InternalReleaseResponse,
+    InternalCreditRequest, InternalCreditResponse, InternalHoldRequest, InternalHoldResponse,
+    InternalPaymentRequest, InternalPaymentResponse, InternalReleaseRequest,
+    InternalReleaseResponse,
 };
-use crate::modules::wallet::domain::entities::{TransactionStatus, TransactionType};
+use crate::modules::wallet::domain::entities::{ReferenceType, TransactionStatus, TransactionType};
 use crate::modules::wallet::domain::errors::WalletError;
 
 impl WalletUseCases {
@@ -40,8 +41,8 @@ impl WalletUseCases {
                 TransactionStatus::Completed,
                 req.amount_cents,
                 updated_wallet.balance,
-                None,
-                None,
+                Some(req.auction_id),
+                Some(ReferenceType::Auction),
                 format!("Bid hold listing={} bid={}", req.listing_id, req.bid_id),
             )
             .await?;
@@ -90,8 +91,8 @@ impl WalletUseCases {
                 TransactionStatus::Completed,
                 req.amount_cents,
                 updated_wallet.balance,
-                None,
-                None,
+                Some(req.reference_id),
+                Some(ReferenceType::Auction),
                 format!("Bid release reference={}", req.reference_id),
             )
             .await?;
@@ -141,8 +142,8 @@ impl WalletUseCases {
                 TransactionStatus::Completed,
                 req.amount_cents,
                 updated_wallet.balance,
-                None,
-                None,
+                Some(req.reference_id),
+                Some(ReferenceType::Auction),
                 format!("Bid convert reference={}", req.reference_id),
             )
             .await?;
@@ -150,6 +151,57 @@ impl WalletUseCases {
         Ok(InternalPaymentResponse {
             paid: true,
             payment_id: tx.id,
+            available_cents: Self::available_cents(
+                updated_wallet.balance,
+                updated_wallet.held_balance,
+            ),
+            held_cents: updated_wallet.held_balance,
+        })
+    }
+
+    /// Credit a seller's wallet for an auction payout. Counterpart of
+    /// `internal_payment`: `internal_payment` debits the buyer's held funds,
+    /// `internal_credit` adds the same amount to the seller's available
+    /// balance. Together they fulfil WBS 4.2.3 (convert hold → payment) end
+    /// to end without bidding needing direct table access.
+    pub async fn internal_credit(
+        &self,
+        req: InternalCreditRequest,
+    ) -> Result<InternalCreditResponse, WalletError> {
+        if req.amount_cents <= 0 {
+            return Err(WalletError::ValidationError(
+                "amountCents must be greater than 0".to_string(),
+            ));
+        }
+
+        // Lazily create the seller wallet so the first auction win does not
+        // require a separate provisioning step.
+        if self.repo.get_wallet(req.user_id).await?.is_none() {
+            self.repo.create_wallet(req.user_id).await?;
+        }
+
+        let updated_wallet = self
+            .repo
+            .update_balances(req.user_id, req.amount_cents, 0)
+            .await?;
+
+        let tx = self
+            .repo
+            .create_transaction(
+                req.user_id,
+                TransactionType::PaymentReceived,
+                TransactionStatus::Completed,
+                req.amount_cents,
+                updated_wallet.balance,
+                Some(req.reference_id),
+                Some(ReferenceType::Auction),
+                format!("Auction payment received reference={}", req.reference_id),
+            )
+            .await?;
+
+        Ok(InternalCreditResponse {
+            credited: true,
+            credit_id: tx.id,
             available_cents: Self::available_cents(
                 updated_wallet.balance,
                 updated_wallet.held_balance,
