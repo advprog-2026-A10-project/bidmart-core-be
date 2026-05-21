@@ -1,4 +1,7 @@
-use axum::{middleware::from_fn_with_state, routing, Router};
+use axum::{
+    middleware::{from_fn, from_fn_with_state},
+    routing, Router,
+};
 use reqwest::Client;
 use sqlx::postgres::PgPool;
 use std::sync::Arc;
@@ -131,5 +134,8 @@ pub fn create_router(state: AppState) -> Router {
                 .merge(category_routes)
                 .merge(internal_routes),
         )
+        // Per-module request tracer (scoped under `core_be.catalog.request`).
+        // Outermost so it observes the final status + auth outcome.
+        .layer(from_fn(middleware::request_trace))
         .with_state(state)
 }
