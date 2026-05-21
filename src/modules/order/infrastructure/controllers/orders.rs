@@ -10,13 +10,16 @@ use serde::Serialize;
 use uuid::Uuid;
 
 use crate::modules::order::application::dto::{
-    ConfirmOrderDto, CreateDisputeDto, GetOrderDto, ListOrdersDto, UpdateShippingDto,
+    ConfirmOrderDto, CreateDisputeDto, GetOrderDto, ListOrdersDto, PublishEventDto,
+    UpdateShippingDto,
 };
 use crate::modules::order::application::use_cases::{
     ConfirmOrderUseCase, CreateDisputeUseCase, GetOrderUseCase, ListOrdersUseCase,
-    UpdateShippingUseCase,
+    PublishEventUseCase, UpdateShippingUseCase,
 };
-use crate::modules::order::domain::entities::OrderStage;
+use crate::modules::order::domain::entities::{
+    NotificationChannel, NotificationEventPayload, NotificationType, Order, OrderStage,
+};
 use crate::modules::order::domain::errors::OrderError;
 use crate::modules::order::infrastructure::middleware::{
     resolve_authenticated_user_id, OptionalAuthError,
@@ -205,7 +208,18 @@ async fn confirm_order(
     let use_case = ConfirmOrderUseCase::new(state.order_repo.clone());
 
     match use_case.execute(dto).await {
-        Ok(_) => StatusCode::NO_CONTENT.into_response(),
+        Ok(_) => {
+            fire_notification(
+                &state,
+                order_id,
+                NotificationType::OrderDelivered,
+                "Buyer confirmed delivery",
+                "The buyer confirmed delivery for this order.",
+                NotificationTarget::Seller,
+            )
+            .await;
+            StatusCode::NO_CONTENT.into_response()
+        }
         Err(error) => map_order_error(error, "Unable to confirm order").into_response(),
     }
 }
@@ -284,7 +298,18 @@ async fn create_dispute(
     let use_case = CreateDisputeUseCase::new(state.order_repo.clone());
 
     match use_case.execute(dto).await {
-        Ok(_) => StatusCode::NO_CONTENT.into_response(),
+        Ok(_) => {
+            fire_notification(
+                &state,
+                order_id,
+                NotificationType::DisputeOpened,
+                "Buyer opened a dispute",
+                "The buyer reported an issue with this order.",
+                NotificationTarget::Seller,
+            )
+            .await;
+            StatusCode::NO_CONTENT.into_response()
+        }
         Err(error) => map_order_error(error, "Unable to create dispute").into_response(),
     }
 }
@@ -317,6 +342,7 @@ async fn update_shipping(
         Ok(value) => value,
         Err(_) => return (StatusCode::BAD_REQUEST, "Invalid order id").into_response(),
     };
+    let normalized_status = body.status.trim().to_lowercase();
     let dto = UpdateShippingDto {
         order_id,
         status: body.status,
@@ -338,7 +364,30 @@ async fn update_shipping(
     let use_case = UpdateShippingUseCase::new(state.order_repo.clone());
 
     match use_case.execute(dto).await {
-        Ok(_) => StatusCode::NO_CONTENT.into_response(),
+        Ok(_) => {
+            let (notif_type, title, body_text) = match normalized_status.as_str() {
+                "in_transit" | "in transit" | "shipped" | "packed" => (
+                    NotificationType::OrderShipped,
+                    "Order shipped",
+                    "Your order is on the way.",
+                ),
+                _ => (
+                    NotificationType::OrderDelivered,
+                    "Order delivered",
+                    "Your order was marked as delivered. Confirm receipt when it arrives.",
+                ),
+            };
+            fire_notification(
+                &state,
+                order_id,
+                notif_type,
+                title,
+                body_text,
+                NotificationTarget::Buyer,
+            )
+            .await;
+            StatusCode::NO_CONTENT.into_response()
+        }
         Err(error) => map_order_error(error, "Unable to update shipping").into_response(),
     }
 }
@@ -374,5 +423,73 @@ fn map_optional_auth_error(error: OptionalAuthError) -> (StatusCode, &'static st
                 "Authentication service unavailable",
             )
         }
+    }
+}
+
+/// Side of the order being notified. `confirm_order` notifies the seller,
+/// `update_shipping_status` notifies the buyer, `create_dispute` notifies the
+/// seller, etc.
+enum NotificationTarget {
+    Buyer,
+    Seller,
+}
+
+/// Fire-and-forget notification publish triggered after a successful order
+/// mutation (WBS 5.2.1 — event publisher). Failures here must not propagate
+/// to the API caller: the order mutation already committed and the user
+/// expects a 204; we just log and move on.
+async fn fire_notification(
+    state: &AppState,
+    order_id: Uuid,
+    notification_type: NotificationType,
+    title: &str,
+    body: &str,
+    target: NotificationTarget,
+) {
+    let order = match GetOrderUseCase::new(state.order_repo.clone())
+        .execute(GetOrderDto { order_id })
+        .await
+    {
+        Ok(order) => order,
+        Err(error) => {
+            tracing::warn!(
+                ?error,
+                %order_id,
+                "skip notification publish: cannot reload order"
+            );
+            return;
+        }
+    };
+
+    let target_user_id = match target {
+        NotificationTarget::Buyer => order.buyer_id.clone(),
+        NotificationTarget::Seller => order.seller_id.clone(),
+    };
+
+    let payload = NotificationEventPayload {
+        order_id: Some(order_id),
+        notification_type,
+        title: title.to_string(),
+        body: format!(
+            "{body} (lot: {lot})",
+            lot = redact_lot(&order),
+        ),
+        channel: NotificationChannel::Inbox,
+        metadata: Some(serde_json::json!({ "userId": target_user_id })),
+    };
+
+    if let Err(error) = PublishEventUseCase::new(state.notification_repo.clone())
+        .execute(PublishEventDto { payload })
+        .await
+    {
+        tracing::warn!(?error, %order_id, "notification publish failed");
+    }
+}
+
+fn redact_lot(order: &Order) -> String {
+    if order.lot.len() > 60 {
+        format!("{}…", &order.lot[..60])
+    } else {
+        order.lot.clone()
     }
 }

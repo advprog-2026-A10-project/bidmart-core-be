@@ -14,7 +14,7 @@ use tokio::task::JoinHandle;
 use tower::ServiceExt;
 use uuid::Uuid;
 
-use crate::modules::order::{create_router, infrastructure::create_app_state};
+use crate::modules::order::{create_router, infrastructure::test_support::create_app_state};
 
 const TEST_BUYER_ONE_ID: &str = "11111111-1111-1111-1111-111111111111";
 const TEST_SELLER_ONE_ID: &str = "22222222-2222-2222-2222-222222222222";

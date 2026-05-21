@@ -1,4 +1,6 @@
-use axum::http::HeaderMap;
+use axum::async_trait;
+use axum::extract::FromRequestParts;
+use axum::http::{request::Parts, HeaderMap, StatusCode};
 use uuid::Uuid;
 
 use crate::infrastructure::auth::{validate_session_with_auth_service, AuthValidationError};
@@ -39,4 +41,51 @@ pub async fn resolve_authenticated_user_id(
     })?;
 
     Ok(Some(validated.user_id))
+}
+
+/// Extractor for internal cross-module endpoints (e.g. `/events/notifications`).
+/// Requires the `X-Internal-Secret` header to match the value configured via
+/// `APP_ORDER_INTERNAL_SECRET`. When the env var is not set, falls back to a
+/// permissive mode and logs a warning — intended for local dev only.
+pub struct InternalAuth;
+
+#[async_trait]
+impl FromRequestParts<AppState> for InternalAuth {
+    type Rejection = (StatusCode, &'static str);
+
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &AppState,
+    ) -> Result<Self, Self::Rejection> {
+        let Some(expected) = state.internal_secret.as_deref() else {
+            tracing::warn!(
+                "APP_ORDER_INTERNAL_SECRET is not configured; \
+                 /events/* is unauthenticated (dev-only mode)."
+            );
+            return Ok(InternalAuth);
+        };
+
+        let provided = parts
+            .headers
+            .get("x-internal-secret")
+            .and_then(|value| value.to_str().ok())
+            .map(str::trim)
+            .unwrap_or_default();
+
+        // Constant-time comparison — walks the longer of the two strings so
+        // length and prefix do not leak via timing.
+        let expected_bytes = expected.as_bytes();
+        let provided_bytes = provided.as_bytes();
+        let mut diff = (expected_bytes.len() ^ provided_bytes.len()) as u32;
+        for i in 0..expected_bytes.len().max(provided_bytes.len()) {
+            let a = expected_bytes.get(i).copied().unwrap_or(0);
+            let b = provided_bytes.get(i).copied().unwrap_or(0);
+            diff |= u32::from(a ^ b);
+        }
+        if diff == 0 {
+            Ok(InternalAuth)
+        } else {
+            Err((StatusCode::UNAUTHORIZED, "Invalid internal secret"))
+        }
+    }
 }

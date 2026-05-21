@@ -56,7 +56,18 @@ impl AppConfig {
         let auth_base_url = std::env::var("APP_AUTH_BASE_URL")
             .or_else(|_| std::env::var("APP_auth_base_url"))
             .or_else(|_| std::env::var("app_auth_base_url"))
-            .map_err(|_| ConfigError::Message("Missing APP_AUTH_BASE_URL".to_string()))?;
+            .map_err(|_| ConfigError::Message("Missing APP_AUTH_BASE_URL".to_string()))?
+            .trim()
+            .to_string();
+        if auth_base_url.is_empty() {
+            // Fail-closed: an empty `auth_base_url` would cause downstream
+            // modules (orders, wallet, catalog) to skip auth validation
+            // silently. Reject at startup so the misconfiguration is loud.
+            return Err(ConfigError::Message(
+                "APP_AUTH_BASE_URL cannot be empty — set it to the auth-be base URL"
+                    .to_string(),
+            ));
+        }
 
         let auto_migrate_on_startup = match std::env::var("APP_AUTO_MIGRATE_ON_STARTUP")
             .or_else(|_| std::env::var("APP_auto_migrate_on_startup"))

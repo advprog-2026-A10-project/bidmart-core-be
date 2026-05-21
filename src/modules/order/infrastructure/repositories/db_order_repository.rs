@@ -71,7 +71,7 @@ impl OrderRepository for DbOrderRepository {
             let order = map_row_to_order(row)?;
             if stage
                 .as_ref()
-                .map_or(true, |expected| order.stage == *expected)
+                .is_none_or(|expected| order.stage == *expected)
             {
                 orders.push(order);
             }
@@ -136,9 +136,12 @@ impl OrderRepository for DbOrderRepository {
         reason: &str,
         details: Option<&str>,
     ) -> Result<(), OrderError> {
-        // Temporary compatibility: older FE still sends non-UUID placeholders.
-        // Once auth identity wiring is complete, this should require a real UUID.
-        let reporter_uuid = Uuid::parse_str(reporter_id).unwrap_or_else(|_| Uuid::nil());
+        // Auth integration extracts a real UUID from the validated session and
+        // forwards it into the use-case. A free-form string should never reach
+        // this layer — reject it as InvalidTransition (422-equivalent) instead
+        // of silently writing a nil UUID into the disputes audit row.
+        let reporter_uuid = Uuid::parse_str(reporter_id)
+            .map_err(|_| OrderError::InvalidTransition)?;
 
         let reason_text = reason.trim();
         let details_text = details.map(str::trim).filter(|value| !value.is_empty());

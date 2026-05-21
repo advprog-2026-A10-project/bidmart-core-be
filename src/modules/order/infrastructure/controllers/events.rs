@@ -3,6 +3,7 @@ use axum::{extract::State, http::StatusCode, response::IntoResponse, routing::po
 use crate::modules::order::application::dto::PublishEventDto;
 use crate::modules::order::application::use_cases::PublishEventUseCase;
 use crate::modules::order::domain::entities::NotificationEventPayload;
+use crate::modules::order::infrastructure::middleware::InternalAuth;
 use crate::modules::order::infrastructure::AppState;
 
 pub fn router() -> Router<AppState> {
@@ -11,6 +12,10 @@ pub fn router() -> Router<AppState> {
 
 async fn publish_event(
     State(state): State<AppState>,
+    // Guard: only callers presenting `X-Internal-Secret` may publish events.
+    // Bidding and other system flows pass the configured secret; arbitrary
+    // browser clients cannot spoof notifications onto a user's inbox.
+    _auth: InternalAuth,
     Json(payload): Json<NotificationEventPayload>,
 ) -> impl IntoResponse {
     let dto = PublishEventDto { payload };
