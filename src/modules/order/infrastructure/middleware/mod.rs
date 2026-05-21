@@ -1,10 +1,17 @@
 use axum::async_trait;
-use axum::extract::FromRequestParts;
-use axum::http::{request::Parts, HeaderMap, StatusCode};
+use axum::extract::{FromRequestParts, Request};
+use axum::http::{request::Parts, HeaderMap, HeaderValue, StatusCode};
+use axum::middleware::Next;
+use axum::response::Response;
+use std::time::Instant;
 use uuid::Uuid;
 
 use crate::infrastructure::auth::{validate_session_with_auth_service, AuthValidationError};
 use crate::modules::order::infrastructure::AppState;
+
+const MODULE: &str = "order";
+const REQUEST_ID_HEADER: &str = "x-request-id";
+const MAX_REQUEST_ID_LEN: usize = 128;
 
 pub enum OptionalAuthError {
     Unauthorized,
@@ -88,4 +95,79 @@ impl FromRequestParts<AppState> for InternalAuth {
             Err((StatusCode::UNAUTHORIZED, "Invalid internal secret"))
         }
     }
+}
+
+/// Per-module request tracer. Same shape as the catalog/bidding/wallet
+/// versions so `RUST_LOG=core_be.order.request=info,...` filters
+/// order-and-notification traffic per module.
+pub async fn request_trace(req: Request, next: Next) -> Response {
+    let request_id = req
+        .headers()
+        .get(REQUEST_ID_HEADER)
+        .and_then(|value| value.to_str().ok())
+        .map(str::trim)
+        .filter(|value| !value.is_empty() && value.len() <= MAX_REQUEST_ID_LEN)
+        .map(ToString::to_string)
+        .unwrap_or_else(|| Uuid::new_v4().to_string());
+
+    let method = req.method().clone();
+    let path = req.uri().path().to_string();
+
+    tracing::info!(
+        target: "core_be.order.request",
+        request_id = %request_id,
+        module = MODULE,
+        method = %method,
+        path = %path,
+        "request_started"
+    );
+
+    let started_at = Instant::now();
+    let mut response = next.run(req).await;
+    let elapsed_ms = started_at.elapsed().as_millis() as u64;
+    let status = response.status();
+    let status_code = status.as_u16();
+
+    if let Ok(header_value) = HeaderValue::from_str(&request_id) {
+        response
+            .headers_mut()
+            .insert(REQUEST_ID_HEADER, header_value);
+    }
+
+    if status.is_server_error() {
+        tracing::error!(
+            target: "core_be.order.request",
+            request_id = %request_id,
+            module = MODULE,
+            method = %method,
+            path = %path,
+            status = status_code,
+            elapsed_ms,
+            "request_finished_with_server_error"
+        );
+    } else if status.is_client_error() {
+        tracing::warn!(
+            target: "core_be.order.request",
+            request_id = %request_id,
+            module = MODULE,
+            method = %method,
+            path = %path,
+            status = status_code,
+            elapsed_ms,
+            "request_finished_with_client_error"
+        );
+    } else {
+        tracing::info!(
+            target: "core_be.order.request",
+            request_id = %request_id,
+            module = MODULE,
+            method = %method,
+            path = %path,
+            status = status_code,
+            elapsed_ms,
+            "request_finished"
+        );
+    }
+
+    response
 }
