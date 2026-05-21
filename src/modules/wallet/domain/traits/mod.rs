@@ -18,6 +18,7 @@ pub trait WalletRepository: Send + Sync {
         held_delta: i64,
     ) -> Result<Wallet, WalletError>;
 
+    #[allow(clippy::too_many_arguments)]
     async fn create_transaction(
         &self,
         wallet_id: Uuid,

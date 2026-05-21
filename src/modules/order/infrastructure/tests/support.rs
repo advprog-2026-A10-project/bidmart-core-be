@@ -2,7 +2,7 @@
 //!
 //! Sample fixtures and the in-memory `AppState` builder live here so the
 //! production binary does not carry seed data. Gated by `#[cfg(test)]` via
-//! `mod test_support` in `infrastructure/mod.rs`.
+//! `mod tests` in `infrastructure/mod.rs`.
 
 use std::sync::Arc;
 
@@ -14,12 +14,13 @@ use uuid::Uuid;
 use crate::modules::order::domain::entities::{
     Notification, NotificationChannel, NotificationType, Order, OrderStage, OrderStatus,
 };
-use crate::modules::order::infrastructure::repositories::{
-    in_memory_notification_repository::InMemoryNotificationRepository,
-    in_memory_order_repository::InMemoryOrderRepository,
-};
 use crate::modules::order::infrastructure::{
     AppState, NotificationRepositoryHandle, OrderRepositoryHandle,
+};
+
+use super::{
+    in_memory_notification_repository::InMemoryNotificationRepository,
+    in_memory_order_repository::InMemoryOrderRepository,
 };
 
 pub const SAMPLE_BUYER_ONE_ID: &str = "11111111-1111-1111-1111-111111111111";
@@ -27,9 +28,8 @@ pub const SAMPLE_SELLER_ONE_ID: &str = "22222222-2222-2222-2222-222222222222";
 pub const SAMPLE_BUYER_TWO_ID: &str = "33333333-3333-3333-3333-333333333333";
 pub const SAMPLE_SELLER_TWO_ID: &str = "44444444-4444-4444-4444-444444444444";
 
-pub fn create_app_state(pool: PgPool) -> AppState {
+pub fn create_app_state(_pool: PgPool) -> AppState {
     AppState {
-        pool,
         auth_base_url: String::new(),
         auth_http_client: reqwest::Client::new(),
         order_repo: OrderRepositoryHandle::new(Arc::new(InMemoryOrderRepository::new(

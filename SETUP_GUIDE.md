@@ -48,6 +48,13 @@ bidmart-core-be/
     └── shared/
 ```
 
+Catatan struktur test:
+
+- Production code dan test code dipisahkan di level modul.
+- Gunakan subtree `tests/` untuk test/helper yang cukup besar, misalnya `src/modules/order/infrastructure/tests/`.
+- Gunakan sibling `tests.rs` hanya bila test perlu akses langsung ke item private dalam file implementasi, misalnya `src/modules/bidding/infrastructure/controllers/tests.rs`.
+- Hindari menaruh blok `#[cfg(test)] mod tests { ... }` panjang langsung di file implementasi utama.
+
 ## Configuration
 
 Buat file `.env`:
@@ -172,3 +179,12 @@ services:
 ```bash
 cargo test
 ```
+
+Pola yang dipakai di codebase saat ini:
+
+- `order`:
+  - module-local test support dan contract-style tests ada di `src/modules/order/infrastructure/tests/`
+- `bidding`:
+  - helper/controller unit tests dipisah ke `src/modules/bidding/infrastructure/controllers/tests.rs`
+- `catalog` dan `wallet`:
+  - saat ini belum punya subtree test internal khusus di bawah `src/modules/*`; test coverage utamanya masih datang dari level crate/workspace

@@ -15,6 +15,7 @@ pub enum ListingError {
     NotPublishable,
 
     #[error("Listing is not active")]
+    #[allow(dead_code)]
     NotActive,
 
     #[error("Validation error: {0}")]

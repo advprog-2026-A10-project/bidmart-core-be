@@ -1,6 +1,6 @@
 use anyhow::anyhow;
 use chrono::{DateTime, Utc};
-use sqlx::{postgres::PgRow, PgPool, Row};
+use sqlx::{PgPool, Row, postgres::PgRow};
 use uuid::Uuid;
 
 use crate::modules::order::domain::entities::{Order, OrderId, OrderStage, OrderStatus};
@@ -140,8 +140,8 @@ impl OrderRepository for DbOrderRepository {
         // forwards it into the use-case. A free-form string should never reach
         // this layer — reject it as InvalidTransition (422-equivalent) instead
         // of silently writing a nil UUID into the disputes audit row.
-        let reporter_uuid = Uuid::parse_str(reporter_id)
-            .map_err(|_| OrderError::InvalidTransition)?;
+        let reporter_uuid =
+            Uuid::parse_str(reporter_id).map_err(|_| OrderError::InvalidTransition)?;
 
         let reason_text = reason.trim();
         let details_text = details.map(str::trim).filter(|value| !value.is_empty());
@@ -377,7 +377,7 @@ fn map_order_status(
         _ => {
             return Err(OrderError::Database(anyhow!(
                 "unsupported order status from db: {raw_status}"
-            )))
+            )));
         }
     };
 

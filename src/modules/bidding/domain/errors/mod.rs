@@ -30,6 +30,7 @@ pub enum BiddingError {
     DatabaseError(#[from] sqlx::Error),
 
     #[error("Internal error: {0}")]
+    #[allow(dead_code)]
     InternalError(String),
 }
 

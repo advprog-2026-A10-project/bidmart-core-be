@@ -1,9 +1,9 @@
 use axum::{
+    Json, Router,
     extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
     response::IntoResponse,
     routing::{get, patch},
-    Json, Router,
 };
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -15,10 +15,10 @@ use crate::modules::order::application::use_cases::{
     GetNotificationUseCase, ListNotificationsUseCase, MarkNotificationUseCase,
 };
 use crate::modules::order::domain::errors::NotificationError;
-use crate::modules::order::infrastructure::middleware::{
-    resolve_authenticated_user_id, OptionalAuthError,
-};
 use crate::modules::order::infrastructure::AppState;
+use crate::modules::order::infrastructure::middleware::{
+    OptionalAuthError, resolve_authenticated_user_id,
+};
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]

@@ -11,6 +11,7 @@ pub struct InMemoryOrderRepository {
 }
 
 impl InMemoryOrderRepository {
+    #[allow(dead_code)]
     pub fn new(orders: Vec<Order>) -> Self {
         Self {
             orders: Mutex::new(orders),
@@ -30,10 +31,10 @@ impl OrderRepository for Arc<InMemoryOrderRepository> {
         let filtered = orders
             .iter()
             .filter(|order| match role {
-                "seller" => user_id.map_or(true, |id| order.seller_id == id),
-                _ => user_id.map_or(true, |id| order.buyer_id == id),
+                "seller" => user_id.is_none_or(|id| order.seller_id == id),
+                _ => user_id.is_none_or(|id| order.buyer_id == id),
             })
-            .filter(|order| stage.as_ref().map_or(true, |s| order.stage == *s))
+            .filter(|order| stage.as_ref().is_none_or(|s| order.stage == *s))
             .cloned()
             .collect();
         Ok(filtered)

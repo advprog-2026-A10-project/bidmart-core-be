@@ -1,9 +1,9 @@
 use axum::{
+    Json, Router,
     extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
     routing::{get, patch, post},
-    Json, Router,
 };
 use serde::Deserialize;
 use serde::Serialize;
@@ -21,10 +21,10 @@ use crate::modules::order::domain::entities::{
     NotificationChannel, NotificationEventPayload, NotificationType, Order, OrderStage,
 };
 use crate::modules::order::domain::errors::OrderError;
-use crate::modules::order::infrastructure::middleware::{
-    resolve_authenticated_user_id, OptionalAuthError,
-};
 use crate::modules::order::infrastructure::AppState;
+use crate::modules::order::infrastructure::middleware::{
+    OptionalAuthError, resolve_authenticated_user_id,
+};
 
 #[derive(Deserialize)]
 struct ListOrdersQuery {
@@ -470,10 +470,7 @@ async fn fire_notification(
         order_id: Some(order_id),
         notification_type,
         title: title.to_string(),
-        body: format!(
-            "{body} (lot: {lot})",
-            lot = redact_lot(&order),
-        ),
+        body: format!("{body} (lot: {lot})", lot = redact_lot(&order),),
         channel: NotificationChannel::Inbox,
         metadata: Some(serde_json::json!({ "userId": target_user_id })),
     };

@@ -6,6 +6,7 @@ use crate::modules::catalog::domain::entities::ListingStatus;
 use crate::modules::catalog::domain::errors::ListingError;
 
 #[async_trait]
+#[allow(dead_code)]
 pub trait ListingIntegrationPort: Send + Sync {
     async fn get_listing_status(&self, id: Uuid) -> Result<Option<ListingStatus>, ListingError>;
 

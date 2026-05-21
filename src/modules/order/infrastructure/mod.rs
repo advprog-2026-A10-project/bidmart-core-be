@@ -12,7 +12,7 @@ use reqwest::Client;
 use sqlx::postgres::PgPool;
 
 #[cfg(test)]
-pub mod test_support;
+pub mod tests;
 
 pub mod controllers;
 pub mod middleware;
@@ -148,7 +148,6 @@ impl NotificationRepository for NotificationRepositoryHandle {
 
 #[derive(Clone)]
 pub struct AppState {
-    pub pool: PgPool,
     pub auth_base_url: String,
     pub auth_http_client: Client,
     pub order_repo: OrderRepositoryHandle,
@@ -167,7 +166,6 @@ pub fn create_runtime_app_state_with_auth(pool: PgPool, auth_base_url: String) -
         .map(Arc::<str>::from);
 
     AppState {
-        pool: pool.clone(),
         auth_base_url,
         auth_http_client: Client::new(),
         order_repo: OrderRepositoryHandle::new(DbOrderRepository::new(pool.clone())),

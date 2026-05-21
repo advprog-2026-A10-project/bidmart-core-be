@@ -1,20 +1,22 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use axum::body::{to_bytes, Body};
+use axum::body::{Body, to_bytes};
 use axum::extract::State;
 use axum::http::{HeaderMap, Method, Request, StatusCode};
 use axum::response::IntoResponse;
 use axum::routing::post;
 use axum::{Json, Router};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use sqlx::postgres::PgPoolOptions;
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
 use tower::ServiceExt;
 use uuid::Uuid;
 
-use crate::modules::order::{create_router, infrastructure::test_support::create_app_state};
+use crate::modules::order::create_router;
+
+use super::support::create_app_state;
 
 const TEST_BUYER_ONE_ID: &str = "11111111-1111-1111-1111-111111111111";
 const TEST_SELLER_ONE_ID: &str = "22222222-2222-2222-2222-222222222222";

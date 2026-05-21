@@ -19,6 +19,7 @@ pub struct ListingFilter {
 
 #[async_trait]
 pub trait ListingRepository: Send + Sync {
+    #[allow(clippy::too_many_arguments)]
     async fn create_listing(
         &self,
         seller_id: Uuid,

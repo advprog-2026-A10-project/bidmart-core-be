@@ -1,6 +1,6 @@
 use anyhow::anyhow;
 use chrono::{DateTime, Utc};
-use sqlx::{postgres::PgRow, PgPool, Row};
+use sqlx::{PgPool, Row, postgres::PgRow};
 use uuid::Uuid;
 
 use crate::modules::order::domain::entities::{

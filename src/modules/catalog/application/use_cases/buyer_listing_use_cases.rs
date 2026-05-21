@@ -97,6 +97,7 @@ impl BuyerListingUseCases {
         })
     }
 
+    #[allow(dead_code)]
     pub async fn browse_by_category_slug(
         &self,
         slug: String,
