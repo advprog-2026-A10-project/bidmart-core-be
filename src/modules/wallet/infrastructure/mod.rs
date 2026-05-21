@@ -6,6 +6,7 @@ pub mod services;
 use std::sync::Arc;
 
 use axum::{
+    middleware::from_fn,
     routing::{get, post},
     Router,
 };
@@ -65,5 +66,7 @@ pub fn create_router(pool: PgPool, auth_base_url: String) -> Router {
             "/api/core/v1",
             public_wallet_routes().merge(internal_wallet_routes()),
         )
+        // Per-module request tracer (scoped under `core_be.wallet.request`).
+        .layer(from_fn(middleware::request_trace))
         .with_state(state)
 }
