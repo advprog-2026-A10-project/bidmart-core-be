@@ -10,6 +10,7 @@ pub mod controllers;
 pub mod middleware;
 pub mod repositories;
 pub mod services;
+pub mod messaging;
 
 use controllers::{buyer_controller, category_controller, internal_controller, seller_controller};
 use repositories::{
