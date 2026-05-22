@@ -17,6 +17,12 @@ use tower::ServiceExt;
 use uuid::Uuid;
 
 use crate::modules::order::create_router;
+use crate::modules::order::infrastructure::repositories::{
+    db_notification_repository::DbNotificationRepository, db_order_repository::DbOrderRepository,
+};
+use crate::modules::order::infrastructure::{
+    AppState, NotificationRepositoryHandle, OrderRepositoryHandle,
+};
 
 use super::support::create_app_state;
 
@@ -26,6 +32,9 @@ const TEST_BUYER_TWO_ID: &str = "33333333-3333-3333-3333-333333333333";
 const DEFAULT_IN_MEMORY_PROFILE_ITERATIONS: usize = 200;
 const DEFAULT_IN_MEMORY_PROFILE_WARMUP: usize = 20;
 const DEFAULT_IN_MEMORY_PROFILE_APDEX_MS: f64 = 10.0;
+const PROFILE_BUYER_ID: &str = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
+const PROFILE_SELLER_ID: &str = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
+const PROFILE_CATEGORY_SLUG: &str = "performance-order-notification";
 
 fn test_app() -> axum::Router {
     let pool = PgPoolOptions::new()
@@ -1508,4 +1517,460 @@ fn percentile(values: &[f64], percentile: f64) -> f64 {
 
 fn round_ms(value: f64) -> f64 {
     (value * 1000.0).round() / 1000.0
+}
+
+#[derive(Clone)]
+struct DbProfileSeed {
+    buyer_id: Uuid,
+    seller_id: Uuid,
+    order_id: Uuid,
+    notification_id: Uuid,
+}
+
+fn test_app_with_db_pool(pool: sqlx::postgres::PgPool) -> axum::Router {
+    let state = AppState {
+        auth_base_url: String::new(),
+        auth_http_client: reqwest::Client::new(),
+        order_repo: OrderRepositoryHandle::new(DbOrderRepository::new(pool.clone())),
+        notification_repo: NotificationRepositoryHandle::new(DbNotificationRepository::new(pool)),
+        internal_secret: None,
+    };
+    create_router(state)
+}
+
+#[tokio::test]
+#[ignore = "manual DB-backed profiling; requires APP_DATABASE_URL pointing to a disposable profiling database"]
+async fn profile_order_notifications_with_database() {
+    let database_url = std::env::var("APP_DATABASE_URL")
+        .expect("APP_DATABASE_URL must point to a disposable profiling database");
+    let iterations = std::env::var("ORDER_PROFILE_ITERATIONS")
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .filter(|value| *value > 0)
+        .unwrap_or(DEFAULT_IN_MEMORY_PROFILE_ITERATIONS);
+    let warmup = std::env::var("ORDER_PROFILE_WARMUP")
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .unwrap_or(DEFAULT_IN_MEMORY_PROFILE_WARMUP);
+    let apdex_threshold_ms = std::env::var("ORDER_PROFILE_APDEX_MS")
+        .ok()
+        .and_then(|value| value.parse::<f64>().ok())
+        .filter(|value| *value > 0.0)
+        .unwrap_or(500.0);
+
+    let pool = PgPoolOptions::new()
+        .max_connections(5)
+        .connect(&database_url)
+        .await
+        .expect("connect profiling database");
+    let seed = seed_db_profile_data(&pool)
+        .await
+        .expect("seed profiling database");
+    let app = test_app_with_db_pool(pool.clone());
+
+    let targets = vec![
+        ProfileTarget {
+            name: "buyer_orders_all",
+            method: Method::GET,
+            path: format!("/orders?userId={}", seed.buyer_id),
+        },
+        ProfileTarget {
+            name: "buyer_orders_processing",
+            method: Method::GET,
+            path: format!("/orders?userId={}&stage=processing", seed.buyer_id),
+        },
+        ProfileTarget {
+            name: "seller_orders_all",
+            method: Method::GET,
+            path: format!("/seller/orders?userId={}", seed.seller_id),
+        },
+        ProfileTarget {
+            name: "buyer_order_detail",
+            method: Method::GET,
+            path: format!("/orders/{}", seed.order_id),
+        },
+        ProfileTarget {
+            name: "seller_order_detail",
+            method: Method::GET,
+            path: format!("/seller/orders/{}", seed.order_id),
+        },
+        ProfileTarget {
+            name: "notifications_all",
+            method: Method::GET,
+            path: format!("/notifications?userId={}&limit=20", seed.buyer_id),
+        },
+        ProfileTarget {
+            name: "notifications_unread",
+            method: Method::GET,
+            path: format!(
+                "/notifications?userId={}&limit=20&unreadOnly=true",
+                seed.buyer_id
+            ),
+        },
+        ProfileTarget {
+            name: "notification_detail",
+            method: Method::GET,
+            path: format!("/notifications/{}", seed.notification_id),
+        },
+    ];
+
+    for target in &targets {
+        for _ in 0..warmup {
+            profile_request(&app, target).await;
+        }
+    }
+
+    let mut summaries = Vec::new();
+    for target in &targets {
+        let mut latencies = Vec::with_capacity(iterations);
+        let mut success_count = 0usize;
+
+        for _ in 0..iterations {
+            let result = profile_request(&app, target).await;
+            latencies.push(result.elapsed_ms);
+            if result.status.is_success() {
+                success_count += 1;
+            }
+        }
+
+        summaries.push(build_profile_summary(
+            target,
+            &latencies,
+            success_count,
+            apdex_threshold_ms,
+        ));
+    }
+
+    let explain = explain_db_profile_queries(&pool, &seed)
+        .await
+        .expect("run explain analyze");
+
+    println!(
+        "DB-backed order/notification profile: iterations={iterations}, warmup={warmup}, apdex_t={apdex_threshold_ms}ms"
+    );
+    for summary in &summaries {
+        println!(
+            "{:<28} count={:<4} errors={:<4} avg={:<8.3} p50={:<8.3} p95={:<8.3} p99={:<8.3} apdex={:<5.3}",
+            summary["endpoint"].as_str().unwrap_or_default(),
+            summary["count"].as_u64().unwrap_or_default(),
+            summary["errorCount"].as_u64().unwrap_or_default(),
+            summary["averageMs"].as_f64().unwrap_or_default(),
+            summary["p50Ms"].as_f64().unwrap_or_default(),
+            summary["p95Ms"].as_f64().unwrap_or_default(),
+            summary["p99Ms"].as_f64().unwrap_or_default(),
+            summary["apdex"].as_f64().unwrap_or_default(),
+        );
+    }
+
+    fs::create_dir_all("performance/results").expect("create performance results directory");
+    let output_path = format!(
+        "performance/results/db-backed-order-notification-profile-{}.json",
+        chrono::Utc::now().format("%Y%m%d-%H%M%S")
+    );
+    let report = json!({
+        "profileType": "db-backed-controller",
+        "database": "external profiling database",
+        "iterations": iterations,
+        "warmup": warmup,
+        "apdexSatisfiedMs": apdex_threshold_ms,
+        "buyerId": seed.buyer_id,
+        "sellerId": seed.seller_id,
+        "orderId": seed.order_id,
+        "notificationId": seed.notification_id,
+        "summary": summaries,
+        "explainAnalyze": explain,
+    });
+    fs::write(
+        &output_path,
+        serde_json::to_string_pretty(&report).expect("serialize DB profile report"),
+    )
+    .expect("write DB profile report");
+    println!("wrote {output_path}");
+}
+
+async fn seed_db_profile_data(pool: &sqlx::postgres::PgPool) -> Result<DbProfileSeed, sqlx::Error> {
+    let buyer_id = Uuid::parse_str(PROFILE_BUYER_ID).expect("profile buyer uuid");
+    let seller_id = Uuid::parse_str(PROFILE_SELLER_ID).expect("profile seller uuid");
+    let listing_id =
+        Uuid::parse_str("cccccccc-cccc-cccc-cccc-cccccccccccc").expect("profile listing uuid");
+    let auction_id =
+        Uuid::parse_str("dddddddd-dddd-dddd-dddd-dddddddddddd").expect("profile auction uuid");
+    let order_id =
+        Uuid::parse_str("eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee").expect("profile order uuid");
+    let notification_id =
+        Uuid::parse_str("ffffffff-ffff-ffff-ffff-ffffffffffff").expect("profile notification uuid");
+
+    let category_id: i32 = sqlx::query_scalar(
+        r#"
+        INSERT INTO categories (name, slug, image_url)
+        VALUES ('Performance Profiling', $1, '')
+        ON CONFLICT (slug)
+        DO UPDATE SET updated_at = CURRENT_TIMESTAMP
+        RETURNING id
+        "#,
+    )
+    .bind(PROFILE_CATEGORY_SLUG)
+    .fetch_one(pool)
+    .await?;
+
+    sqlx::query(
+        r#"
+        INSERT INTO listings (
+            id,
+            seller_id,
+            seller_name,
+            category_id,
+            category_name,
+            title,
+            description,
+            start_price,
+            reserve_price,
+            current_price,
+            min_increment,
+            bid_count,
+            status,
+            auction_id,
+            starts_at,
+            ends_at
+        )
+        VALUES (
+            $1, $2, 'Profiling Seller', $3, 'Performance Profiling',
+            'Profiling Lot - Order Module', 'Synthetic listing for order profiling',
+            100000, 120000, 150000, 1000, 3, 'SOLD'::listing_status,
+            NULL, NOW() - INTERVAL '2 days', NOW() + INTERVAL '1 day'
+        )
+        ON CONFLICT (id)
+        DO UPDATE SET
+            seller_id = EXCLUDED.seller_id,
+            seller_name = EXCLUDED.seller_name,
+            category_id = EXCLUDED.category_id,
+            category_name = EXCLUDED.category_name,
+            title = EXCLUDED.title,
+            status = EXCLUDED.status,
+            updated_at = CURRENT_TIMESTAMP
+        "#,
+    )
+    .bind(listing_id)
+    .bind(seller_id)
+    .bind(category_id)
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        r#"
+        INSERT INTO auctions (
+            id,
+            listing_id,
+            seller_id,
+            seller_name,
+            title,
+            description,
+            image_url,
+            start_price,
+            current_price,
+            reserve_price,
+            bid_increment,
+            bid_count,
+            status,
+            winner_id,
+            winner_name,
+            starts_at,
+            ends_at,
+            original_ends_at
+        )
+        VALUES (
+            $1, $2, $3, 'Profiling Seller',
+            'Profiling Lot - Order Module', 'Synthetic auction for order profiling', '',
+            100000, 150000, 120000, 1000, 3, 'WON'::auction_status,
+            $4, 'Profiling Buyer',
+            NOW() - INTERVAL '2 days', NOW() - INTERVAL '1 day', NOW() - INTERVAL '1 day'
+        )
+        ON CONFLICT (id)
+        DO UPDATE SET
+            listing_id = EXCLUDED.listing_id,
+            seller_id = EXCLUDED.seller_id,
+            winner_id = EXCLUDED.winner_id,
+            status = EXCLUDED.status
+        "#,
+    )
+    .bind(auction_id)
+    .bind(listing_id)
+    .bind(seller_id)
+    .bind(buyer_id)
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        r#"
+        UPDATE listings
+        SET auction_id = $2,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = $1
+        "#,
+    )
+    .bind(listing_id)
+    .bind(auction_id)
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        r#"
+        INSERT INTO orders (
+            id,
+            auction_id,
+            listing_id,
+            buyer_id,
+            buyer_name,
+            seller_id,
+            seller_name,
+            title,
+            image_url,
+            final_price,
+            status,
+            shipping_status,
+            carrier,
+            tracking_number,
+            paid_at,
+            shipped_at,
+            delivered_at,
+            is_disputed
+        )
+        VALUES (
+            $1, $2, $3, $4, 'Profiling Buyer', $5, 'Profiling Seller',
+            'Profiling Lot - Order Module', '', 150000,
+            'DELIVERED'::order_status, 'DELIVERED'::shipping_status,
+            'Synthetic Courier', 'PROFILE-TRACK-001',
+            NOW() - INTERVAL '1 day',
+            NOW() - INTERVAL '12 hours',
+            NOW() - INTERVAL '1 hour',
+            FALSE
+        )
+        ON CONFLICT (id)
+        DO UPDATE SET
+            status = EXCLUDED.status,
+            shipping_status = EXCLUDED.shipping_status,
+            carrier = EXCLUDED.carrier,
+            tracking_number = EXCLUDED.tracking_number,
+            is_disputed = FALSE,
+            updated_at = CURRENT_TIMESTAMP
+        "#,
+    )
+    .bind(order_id)
+    .bind(auction_id)
+    .bind(listing_id)
+    .bind(buyer_id)
+    .bind(seller_id)
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        r#"
+        INSERT INTO notifications (
+            id,
+            user_id,
+            type,
+            title,
+            message,
+            is_read,
+            reference_id,
+            reference_type
+        )
+        VALUES
+            ($1, $2, 'ORDER_DELIVERED'::notification_type, 'Profiling order delivered',
+             'Synthetic notification for profiling.', FALSE, $3, 'order'::reference_type),
+            ('99999999-9999-9999-9999-999999999999'::uuid, $2, 'ORDER_SHIPPED'::notification_type,
+             'Profiling order shipped', 'Synthetic read notification for profiling.', TRUE, $3,
+             'order'::reference_type)
+        ON CONFLICT (id)
+        DO UPDATE SET
+            user_id = EXCLUDED.user_id,
+            type = EXCLUDED.type,
+            title = EXCLUDED.title,
+            message = EXCLUDED.message,
+            is_read = EXCLUDED.is_read,
+            reference_id = EXCLUDED.reference_id,
+            reference_type = EXCLUDED.reference_type
+        "#,
+    )
+    .bind(notification_id)
+    .bind(buyer_id)
+    .bind(order_id)
+    .execute(pool)
+    .await?;
+
+    Ok(DbProfileSeed {
+        buyer_id,
+        seller_id,
+        order_id,
+        notification_id,
+    })
+}
+
+async fn explain_db_profile_queries(
+    pool: &sqlx::postgres::PgPool,
+    seed: &DbProfileSeed,
+) -> Result<Value, sqlx::Error> {
+    let buyer_orders = explain_query(
+        pool,
+        "buyer_order_list",
+        r#"
+        EXPLAIN (ANALYZE, BUFFERS)
+        SELECT id, title, buyer_id, seller_id, final_price, status::text AS status_text,
+               shipping_status::text AS shipping_status_text, carrier, tracking_number,
+               is_disputed, created_at, updated_at
+        FROM orders
+        WHERE buyer_id = $1
+        ORDER BY updated_at DESC
+        "#,
+        seed.buyer_id,
+    )
+    .await?;
+    let seller_orders = explain_query(
+        pool,
+        "seller_order_list",
+        r#"
+        EXPLAIN (ANALYZE, BUFFERS)
+        SELECT id, title, buyer_id, seller_id, final_price, status::text AS status_text,
+               shipping_status::text AS shipping_status_text, carrier, tracking_number,
+               is_disputed, created_at, updated_at
+        FROM orders
+        WHERE seller_id = $1
+        ORDER BY updated_at DESC
+        "#,
+        seed.seller_id,
+    )
+    .await?;
+    let notification_list = explain_query(
+        pool,
+        "notification_unread_list",
+        r#"
+        EXPLAIN (ANALYZE, BUFFERS)
+        SELECT id, user_id, type::text AS type_text, title, message, reference_id,
+               reference_type::text AS reference_type_text, created_at, read_at
+        FROM notifications
+        WHERE user_id = $1 AND is_read = FALSE
+        ORDER BY created_at DESC
+        LIMIT 20
+        "#,
+        seed.buyer_id,
+    )
+    .await?;
+
+    Ok(json!([buyer_orders, seller_orders, notification_list]))
+}
+
+async fn explain_query(
+    pool: &sqlx::postgres::PgPool,
+    label: &str,
+    sql: &str,
+    id: Uuid,
+) -> Result<Value, sqlx::Error> {
+    let plan = sqlx::query_scalar::<_, String>(sql)
+        .bind(id)
+        .fetch_all(pool)
+        .await?;
+    Ok(json!({
+        "label": label,
+        "plan": plan,
+    }))
 }

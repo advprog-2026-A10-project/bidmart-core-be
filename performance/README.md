@@ -82,6 +82,27 @@ The output is written to:
 
 - `performance/results/in-memory-order-notification-profile-*.json`
 
+## DB-Backed Profiling Without Real Auth
+
+For a disposable profiling database such as a dummy Neon project, run the
+DB-backed manual profiler. It seeds a deterministic synthetic listing, auction,
+order, and notifications into the database, then exercises the real SQLx order
+and notification repositories through the Axum router. Auth is disabled only in
+this manual test harness; production config is not changed.
+
+```powershell
+cd C:\rustgroup\bidmart-core-be
+$env:APP_DATABASE_URL = "postgresql://USER:PASSWORD@HOST/neondb?sslmode=require"
+$env:ORDER_PROFILE_ITERATIONS = "50"
+$env:ORDER_PROFILE_WARMUP = "5"
+$env:ORDER_PROFILE_APDEX_MS = "500"
+cargo test --lib profile_order_notifications_with_database -- --ignored --nocapture
+```
+
+The output is written to:
+
+- `performance/results/db-backed-order-notification-profile-*.json`
+
 ## Database Profiling
 
 Run the SQL script against a database with representative data:

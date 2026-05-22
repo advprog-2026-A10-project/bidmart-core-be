@@ -62,6 +62,17 @@ cargo test --lib profile_order_notifications_without_database -- --ignored --noc
 
 ### Runtime API Baseline
 
+This can be filled from the standalone DB-backed profiler when the full backend
+and auth stack is not available:
+
+```powershell
+$env:APP_DATABASE_URL = "postgresql://USER:PASSWORD@HOST/neondb?sslmode=require"
+$env:ORDER_PROFILE_ITERATIONS = "50"
+$env:ORDER_PROFILE_WARMUP = "5"
+$env:ORDER_PROFILE_APDEX_MS = "500"
+cargo test --lib profile_order_notifications_with_database -- --ignored --nocapture
+```
+
 | Endpoint | Count | Error Count | Avg ms | P50 ms | P95 ms | P99 ms | APDEX |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | buyer_orders_all | | | | | | | |
