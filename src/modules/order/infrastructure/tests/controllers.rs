@@ -35,6 +35,7 @@ const DEFAULT_IN_MEMORY_PROFILE_APDEX_MS: f64 = 10.0;
 const PROFILE_BUYER_ID: &str = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
 const PROFILE_SELLER_ID: &str = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
 const PROFILE_CATEGORY_SLUG: &str = "performance-order-notification";
+const PROFILE_NOTIFICATION_COUNT: i64 = 2_000;
 
 fn test_app() -> axum::Router {
     let pool = PgPoolOptions::new()
@@ -1865,6 +1866,19 @@ async fn seed_db_profile_data(pool: &sqlx::postgres::PgPool) -> Result<DbProfile
 
     sqlx::query(
         r#"
+        DELETE FROM notifications
+        WHERE user_id = $1
+          AND reference_id = $2
+          AND title LIKE 'Profiling notification %'
+        "#,
+    )
+    .bind(buyer_id)
+    .bind(order_id)
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        r#"
         INSERT INTO notifications (
             id,
             user_id,
@@ -1873,14 +1887,22 @@ async fn seed_db_profile_data(pool: &sqlx::postgres::PgPool) -> Result<DbProfile
             message,
             is_read,
             reference_id,
-            reference_type
+            reference_type,
+            created_at,
+            read_at
         )
-        VALUES
-            ($1, $2, 'ORDER_DELIVERED'::notification_type, 'Profiling order delivered',
-             'Synthetic notification for profiling.', FALSE, $3, 'order'::reference_type),
-            ('99999999-9999-9999-9999-999999999999'::uuid, $2, 'ORDER_SHIPPED'::notification_type,
-             'Profiling order shipped', 'Synthetic read notification for profiling.', TRUE, $3,
-             'order'::reference_type)
+        VALUES (
+            $1,
+            $2,
+            'ORDER_DELIVERED'::notification_type,
+            'Profiling notification 0000',
+            'Synthetic unread notification for profiling detail endpoint.',
+            FALSE,
+            $3,
+            'order'::reference_type,
+            NOW(),
+            NULL
+        )
         ON CONFLICT (id)
         DO UPDATE SET
             user_id = EXCLUDED.user_id,
@@ -1889,12 +1911,54 @@ async fn seed_db_profile_data(pool: &sqlx::postgres::PgPool) -> Result<DbProfile
             message = EXCLUDED.message,
             is_read = EXCLUDED.is_read,
             reference_id = EXCLUDED.reference_id,
-            reference_type = EXCLUDED.reference_type
+            reference_type = EXCLUDED.reference_type,
+            created_at = EXCLUDED.created_at,
+            read_at = EXCLUDED.read_at
         "#,
     )
     .bind(notification_id)
     .bind(buyer_id)
     .bind(order_id)
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        r#"
+        INSERT INTO notifications (
+            id,
+            user_id,
+            type,
+            title,
+            message,
+            is_read,
+            reference_id,
+            reference_type,
+            created_at,
+            read_at
+        )
+        SELECT
+            gen_random_uuid(),
+            $1,
+            CASE
+                WHEN series.value % 2 = 0 THEN 'ORDER_SHIPPED'
+                ELSE 'ORDER_DELIVERED'
+            END::notification_type,
+            'Profiling notification ' || lpad(series.value::text, 4, '0'),
+            'Synthetic notification row ' || series.value::text || ' for profiling.',
+            series.value % 3 = 0,
+            $2,
+            'order'::reference_type,
+            NOW() - (series.value || ' seconds')::interval,
+            CASE
+                WHEN series.value % 3 = 0 THEN NOW() - (series.value || ' seconds')::interval
+                ELSE NULL
+            END
+        FROM generate_series(1, $3) AS series(value)
+        "#,
+    )
+    .bind(buyer_id)
+    .bind(order_id)
+    .bind(PROFILE_NOTIFICATION_COUNT - 1)
     .execute(pool)
     .await?;
 

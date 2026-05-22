@@ -86,9 +86,9 @@ The output is written to:
 
 For a disposable profiling database such as a dummy Neon project, run the
 DB-backed manual profiler. It seeds a deterministic synthetic listing, auction,
-order, and notifications into the database, then exercises the real SQLx order
-and notification repositories through the Axum router. Auth is disabled only in
-this manual test harness; production config is not changed.
+order, and 2,000 notifications into the database, then exercises the real SQLx
+order and notification repositories through the Axum router. Auth is disabled
+only in this manual test harness; production config is not changed.
 
 ```powershell
 cd C:\rustgroup\bidmart-core-be
