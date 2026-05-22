@@ -34,6 +34,7 @@ pub trait OrderRepository: Send + Sync {
         tracking: Option<&str>,
     ) -> Result<(), OrderError>;
 
+    #[allow(dead_code)]
     async fn record_event(
         &self,
         order_id: OrderId,

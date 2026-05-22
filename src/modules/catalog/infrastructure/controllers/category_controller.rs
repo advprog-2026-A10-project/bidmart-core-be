@@ -21,7 +21,10 @@ pub async fn list_categories(
     State(state): State<AppState>,
     axum::extract::Query(params): axum::extract::Query<CategoryQueryParams>,
 ) -> Result<Json<Vec<CategoryResponse>>, CategoryError> {
-    let result = state.category_use_cases.list_categories(params.parent_id).await?;
+    let result = state
+        .category_use_cases
+        .list_categories(params.parent_id)
+        .await?;
     Ok(Json(result))
 }
 

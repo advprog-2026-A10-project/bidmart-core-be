@@ -19,3 +19,4 @@ Thumbs.db
 # Local CLI/tooling binaries
 gh.exe
 .tools/
+/docs

@@ -49,7 +49,11 @@ pub async fn update_status(
     Path(id): Path<Uuid>,
     Json(body): Json<UpdateStatusRequest>,
 ) -> impl IntoResponse {
-    match state.integration_service.update_listing_status(id, body.status).await {
+    match state
+        .integration_service
+        .update_listing_status(id, body.status)
+        .await
+    {
         Ok(_) => StatusCode::NO_CONTENT.into_response(),
         Err(e) => e.into_response(),
     }
@@ -61,7 +65,11 @@ pub async fn link_auction(
     Path(id): Path<Uuid>,
     Json(body): Json<LinkAuctionRequest>,
 ) -> impl IntoResponse {
-    match state.integration_service.link_auction(id, body.auction_id).await {
+    match state
+        .integration_service
+        .link_auction(id, body.auction_id)
+        .await
+    {
         Ok(_) => StatusCode::NO_CONTENT.into_response(),
         Err(e) => e.into_response(),
     }
@@ -73,7 +81,11 @@ pub async fn update_ends_at(
     Path(id): Path<Uuid>,
     Json(body): Json<UpdateEndsAtRequest>,
 ) -> impl IntoResponse {
-    match state.integration_service.update_ends_at(id, body.new_ends_at).await {
+    match state
+        .integration_service
+        .update_ends_at(id, body.new_ends_at)
+        .await
+    {
         Ok(_) => StatusCode::NO_CONTENT.into_response(),
         Err(e) => e.into_response(),
     }

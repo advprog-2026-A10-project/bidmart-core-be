@@ -41,7 +41,11 @@ impl ListingImageRepository for PostgresListingImageRepository {
         listing_id: Uuid,
         urls: Vec<String>,
     ) -> Result<Vec<ListingImage>, ListingError> {
-        let mut tx = self.pool.begin().await.map_err(ListingError::DatabaseError)?;
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(ListingError::DatabaseError)?;
 
         // Delete existing images
         sqlx::query("DELETE FROM listing_images WHERE listing_id = $1")

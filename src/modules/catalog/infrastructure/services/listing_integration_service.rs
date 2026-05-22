@@ -19,10 +19,7 @@ impl ListingIntegrationService {
 
 #[async_trait]
 impl ListingIntegrationPort for ListingIntegrationService {
-    async fn get_listing_status(
-        &self,
-        id: Uuid,
-    ) -> Result<Option<ListingStatus>, ListingError> {
+    async fn get_listing_status(&self, id: Uuid) -> Result<Option<ListingStatus>, ListingError> {
         self.repo.get_listing_status(id).await
     }
 
@@ -34,11 +31,7 @@ impl ListingIntegrationPort for ListingIntegrationService {
         self.repo.update_listing_status(id, status).await
     }
 
-    async fn link_auction(
-        &self,
-        listing_id: Uuid,
-        auction_id: Uuid,
-    ) -> Result<(), ListingError> {
+    async fn link_auction(&self, listing_id: Uuid, auction_id: Uuid) -> Result<(), ListingError> {
         self.repo.link_auction(listing_id, auction_id).await
     }
 
@@ -50,11 +43,7 @@ impl ListingIntegrationPort for ListingIntegrationService {
         self.repo.update_ends_at(listing_id, new_ends_at).await
     }
 
-    async fn update_current_price(
-        &self,
-        id: Uuid,
-        new_price: i64,
-    ) -> Result<(), ListingError> {
+    async fn update_current_price(&self, id: Uuid, new_price: i64) -> Result<(), ListingError> {
         self.repo.update_current_price(id, new_price).await
     }
 

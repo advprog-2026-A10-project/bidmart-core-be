@@ -1,10 +1,10 @@
 use std::sync::Arc;
 
-use crate::modules::catalog::domain::errors::CategoryError;
-use crate::modules::catalog::domain::traits::CategoryRepository;
 use crate::modules::catalog::application::dto::category_dto::{
     CategoryResponse, CreateCategoryRequest, UpdateCategoryRequest,
 };
+use crate::modules::catalog::domain::errors::CategoryError;
+use crate::modules::catalog::domain::traits::CategoryRepository;
 
 pub struct CategoryUseCases {
     category_repo: Arc<dyn CategoryRepository>,
@@ -23,10 +23,7 @@ impl CategoryUseCases {
         Ok(categories.into_iter().map(CategoryResponse::from).collect())
     }
 
-    pub async fn get_category_by_id(
-        &self,
-        id: i32,
-    ) -> Result<CategoryResponse, CategoryError> {
+    pub async fn get_category_by_id(&self, id: i32) -> Result<CategoryResponse, CategoryError> {
         self.category_repo
             .get_category(id)
             .await?

@@ -13,6 +13,7 @@ pub struct InMemoryNotificationRepository {
 }
 
 impl InMemoryNotificationRepository {
+    #[allow(dead_code)]
     pub fn new(notifications: Vec<Notification>) -> Self {
         Self {
             notifications: Mutex::new(notifications),
@@ -30,13 +31,13 @@ impl NotificationRepository for Arc<InMemoryNotificationRepository> {
     ) -> Result<Vec<Notification>, NotificationError> {
         let notifications = self.notifications.lock().await;
         let iter = notifications.iter().filter(|notification| {
-            let user_match = user_id.map_or(true, |id| {
+            let user_match = user_id.is_none_or(|id| {
                 notification
                     .metadata
                     .as_ref()
                     .and_then(|metadata| metadata.get("userId"))
                     .and_then(|value| value.as_str())
-                    .map_or(false, |meta_id| meta_id == id)
+                    == Some(id)
             });
             let unread_match = !unread_only || notification.read_at.is_none();
             user_match && unread_match

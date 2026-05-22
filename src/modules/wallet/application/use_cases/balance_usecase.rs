@@ -1,8 +1,8 @@
 use uuid::Uuid;
 
-use crate::modules::wallet::domain::errors::WalletError;
-use crate::modules::wallet::application::dto::WalletBalanceResponse;
 use super::WalletUseCases;
+use crate::modules::wallet::application::dto::WalletBalanceResponse;
+use crate::modules::wallet::domain::errors::WalletError;
 
 impl WalletUseCases {
     pub async fn get_balance(&self, user_id: Uuid) -> Result<WalletBalanceResponse, WalletError> {
@@ -12,8 +12,8 @@ impl WalletUseCases {
         };
 
         Ok(WalletBalanceResponse {
-            available_cents: Self::to_cents(wallet.balance),
-            held_cents: Self::to_cents(wallet.held_balance),
+            available_cents: Self::available_cents(wallet.balance, wallet.held_balance),
+            held_cents: wallet.held_balance,
             currency: "IDR".to_string(),
         })
     }

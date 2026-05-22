@@ -4,38 +4,55 @@ use thiserror::Error;
 pub enum WalletError {
     #[error("Wallet not found")]
     NotFound,
-    
+
     #[error("Insufficient balance")]
     InsufficientBalance,
-    
-    #[error("Invalid amount")]
-    InvalidAmount,
-    
+
+    #[error("Validation error: {0}")]
+    ValidationError(String),
+
     #[error("Database error: {0}")]
     DatabaseError(#[from] sqlx::Error),
-    
+
     #[error("Internal error: {0}")]
+    #[allow(dead_code)]
     InternalError(String),
 }
 
 impl axum::response::IntoResponse for WalletError {
     fn into_response(self) -> axum::response::Response {
-        let (status, error_message) = match self {
-            WalletError::NotFound => (axum::http::StatusCode::NOT_FOUND, self.to_string()),
-            WalletError::InsufficientBalance | WalletError::InvalidAmount => (
-                axum::http::StatusCode::BAD_REQUEST,
-                self.to_string(),
-            ),
-            WalletError::DatabaseError(_) | WalletError::InternalError(_) => (
-                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                "Internal server error".to_string(),
-            ),
-        };
+        match self {
+            WalletError::ValidationError(message) => {
+                let body = axum::Json(serde_json::json!({
+                    "message": "Validation failed",
+                    "errors": {
+                        "request": [message]
+                    }
+                }));
+                (axum::http::StatusCode::UNPROCESSABLE_ENTITY, body).into_response()
+            }
+            other => {
+                let (status, message) = match other {
+                    WalletError::NotFound => (
+                        axum::http::StatusCode::NOT_FOUND,
+                        "Wallet not found".to_string(),
+                    ),
+                    WalletError::InsufficientBalance => (
+                        axum::http::StatusCode::BAD_REQUEST,
+                        "Insufficient balance".to_string(),
+                    ),
+                    WalletError::DatabaseError(_) | WalletError::InternalError(_) => (
+                        axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                        "Internal server error".to_string(),
+                    ),
+                    WalletError::ValidationError(_) => unreachable!(),
+                };
 
-        let body = axum::Json(serde_json::json!({
-            "error": error_message,
-        }));
-
-        (status, body).into_response()
+                let body = axum::Json(serde_json::json!({
+                    "message": message,
+                }));
+                (status, body).into_response()
+            }
+        }
     }
 }

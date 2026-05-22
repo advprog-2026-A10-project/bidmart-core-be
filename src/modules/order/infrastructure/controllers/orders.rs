@@ -1,24 +1,30 @@
 use axum::{
-    extract::{Path, Query, State},
-    http::StatusCode,
-    response::IntoResponse,
-    routing::{get, patch, post},
     Json, Router,
+    extract::{Path, Query, State},
+    http::{HeaderMap, StatusCode},
+    response::{IntoResponse, Response},
+    routing::{get, patch, post},
 };
 use serde::Deserialize;
 use serde::Serialize;
 use uuid::Uuid;
 
 use crate::modules::order::application::dto::{
-    ConfirmOrderDto, CreateDisputeDto, GetOrderDto, ListOrdersDto, UpdateShippingDto,
+    ConfirmOrderDto, CreateDisputeDto, GetOrderDto, ListOrdersDto, PublishEventDto,
+    UpdateShippingDto,
 };
 use crate::modules::order::application::use_cases::{
     ConfirmOrderUseCase, CreateDisputeUseCase, GetOrderUseCase, ListOrdersUseCase,
-    UpdateShippingUseCase,
+    PublishEventUseCase, UpdateShippingUseCase,
 };
-use crate::modules::order::domain::entities::OrderStage;
+use crate::modules::order::domain::entities::{
+    NotificationChannel, NotificationEventPayload, NotificationType, Order, OrderStage,
+};
 use crate::modules::order::domain::errors::OrderError;
 use crate::modules::order::infrastructure::AppState;
+use crate::modules::order::infrastructure::middleware::{
+    OptionalAuthError, resolve_authenticated_user_id,
+};
 
 #[derive(Deserialize)]
 struct ListOrdersQuery {
@@ -46,23 +52,42 @@ pub fn router() -> Router<AppState> {
 
 async fn list_buyer_orders(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Query(query): Query<ListOrdersQuery>,
-) -> impl IntoResponse {
-    list_orders_by_role(state, query, "buyer").await
+) -> Response {
+    let authenticated_user_id = match resolve_authenticated_user_id(&state, &headers).await {
+        Ok(value) => value,
+        Err(error) => return map_optional_auth_error(error).into_response(),
+    };
+    if !state.auth_base_url.trim().is_empty() && authenticated_user_id.is_none() {
+        return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
+    }
+
+    list_orders_by_role(state, query, "buyer", authenticated_user_id).await
 }
 
 async fn list_seller_orders(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Query(query): Query<ListOrdersQuery>,
-) -> impl IntoResponse {
-    list_orders_by_role(state, query, "seller").await
+) -> Response {
+    let authenticated_user_id = match resolve_authenticated_user_id(&state, &headers).await {
+        Ok(value) => value,
+        Err(error) => return map_optional_auth_error(error).into_response(),
+    };
+    if !state.auth_base_url.trim().is_empty() && authenticated_user_id.is_none() {
+        return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
+    }
+
+    list_orders_by_role(state, query, "seller", authenticated_user_id).await
 }
 
 async fn list_orders_by_role(
     state: AppState,
     query: ListOrdersQuery,
     role: &str,
-) -> impl IntoResponse {
+    authenticated_user_id: Option<Uuid>,
+) -> Response {
     let stage = match query.stage.as_deref() {
         Some(stage_value) => match parse_stage(stage_value) {
             Some(parsed_stage) => Some(parsed_stage),
@@ -72,7 +97,9 @@ async fn list_orders_by_role(
     };
 
     let dto = ListOrdersDto {
-        user_id: query.user_id,
+        user_id: authenticated_user_id
+            .map(|value| value.to_string())
+            .or(query.user_id),
         role: role.to_string(),
         stage,
     };
@@ -87,8 +114,17 @@ async fn list_orders_by_role(
 
 async fn get_order(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path(order_id): Path<String>,
 ) -> impl IntoResponse {
+    let authenticated_user_id = match resolve_authenticated_user_id(&state, &headers).await {
+        Ok(value) => value,
+        Err(error) => return map_optional_auth_error(error).into_response(),
+    };
+    if !state.auth_base_url.trim().is_empty() && authenticated_user_id.is_none() {
+        return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
+    }
+
     let parsed_id = match Uuid::parse_str(&order_id) {
         Ok(value) => value,
         Err(_) => return (StatusCode::BAD_REQUEST, "Invalid order id").into_response(),
@@ -100,22 +136,51 @@ async fn get_order(
     let use_case = GetOrderUseCase::new(state.order_repo.clone());
 
     match use_case.execute(dto).await {
-        Ok(order) => (StatusCode::OK, Json(order)).into_response(),
+        Ok(order) => {
+            if let Some(user_id) = authenticated_user_id {
+                let user_id_text = user_id.to_string();
+                if order.buyer_id != user_id_text && order.seller_id != user_id_text {
+                    return (StatusCode::FORBIDDEN, "Forbidden").into_response();
+                }
+            }
+
+            (StatusCode::OK, Json(order)).into_response()
+        }
         Err(_) => (StatusCode::NOT_FOUND, "Order not found").into_response(),
     }
 }
 
 #[derive(serde::Deserialize)]
 struct ConfirmOrderBody {
-    actor_id: String,
+    actor_id: Option<String>,
 }
 
 async fn confirm_order(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path(order_id): Path<String>,
     Json(body): Json<ConfirmOrderBody>,
 ) -> impl IntoResponse {
-    if body.actor_id.trim().is_empty() {
+    let authenticated_user_id = match resolve_authenticated_user_id(&state, &headers).await {
+        Ok(value) => value,
+        Err(error) => return map_optional_auth_error(error).into_response(),
+    };
+    if !state.auth_base_url.trim().is_empty() && authenticated_user_id.is_none() {
+        return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
+    }
+
+    let actor_id = authenticated_user_id
+        .map(|value| value.to_string())
+        .or(body.actor_id.and_then(|value| {
+            let trimmed = value.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed.to_string())
+            }
+        }));
+
+    if actor_id.is_none() {
         return (StatusCode::BAD_REQUEST, "actor_id is required").into_response();
     }
 
@@ -125,30 +190,73 @@ async fn confirm_order(
     };
     let dto = ConfirmOrderDto {
         order_id,
-        actor_id: body.actor_id,
+        actor_id: actor_id.expect("checked actor id exists"),
     };
+
+    if let Some(user_id) = authenticated_user_id {
+        let guard_use_case = GetOrderUseCase::new(state.order_repo.clone());
+        match guard_use_case.execute(GetOrderDto { order_id }).await {
+            Ok(order) => {
+                if order.buyer_id != user_id.to_string() {
+                    return (StatusCode::FORBIDDEN, "Forbidden").into_response();
+                }
+            }
+            Err(_) => return (StatusCode::NOT_FOUND, "Order not found").into_response(),
+        }
+    }
 
     let use_case = ConfirmOrderUseCase::new(state.order_repo.clone());
 
     match use_case.execute(dto).await {
-        Ok(_) => StatusCode::NO_CONTENT.into_response(),
+        Ok(_) => {
+            fire_notification(
+                &state,
+                order_id,
+                NotificationType::OrderDelivered,
+                "Buyer confirmed delivery",
+                "The buyer confirmed delivery for this order.",
+                NotificationTarget::Seller,
+            )
+            .await;
+            StatusCode::NO_CONTENT.into_response()
+        }
         Err(error) => map_order_error(error, "Unable to confirm order").into_response(),
     }
 }
 
 #[derive(serde::Deserialize)]
 struct CreateDisputeBody {
-    reporter_id: String,
+    reporter_id: Option<String>,
     reason: String,
     details: Option<String>,
 }
 
 async fn create_dispute(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path(order_id): Path<String>,
     Json(body): Json<CreateDisputeBody>,
 ) -> impl IntoResponse {
-    if body.reporter_id.trim().is_empty() {
+    let authenticated_user_id = match resolve_authenticated_user_id(&state, &headers).await {
+        Ok(value) => value,
+        Err(error) => return map_optional_auth_error(error).into_response(),
+    };
+    if !state.auth_base_url.trim().is_empty() && authenticated_user_id.is_none() {
+        return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
+    }
+
+    let reporter_id = authenticated_user_id.map(|value| value.to_string()).or(body
+        .reporter_id
+        .and_then(|value| {
+            let trimmed = value.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed.to_string())
+            }
+        }));
+
+    if reporter_id.is_none() {
         return (StatusCode::BAD_REQUEST, "reporter_id is required").into_response();
     }
 
@@ -170,15 +278,38 @@ async fn create_dispute(
     };
     let dto = CreateDisputeDto {
         order_id,
-        reporter_id: body.reporter_id,
+        reporter_id: reporter_id.expect("checked reporter id exists"),
         reason: body.reason,
         details: body.details,
     };
 
+    if let Some(user_id) = authenticated_user_id {
+        let guard_use_case = GetOrderUseCase::new(state.order_repo.clone());
+        match guard_use_case.execute(GetOrderDto { order_id }).await {
+            Ok(order) => {
+                if order.buyer_id != user_id.to_string() {
+                    return (StatusCode::FORBIDDEN, "Forbidden").into_response();
+                }
+            }
+            Err(_) => return (StatusCode::NOT_FOUND, "Order not found").into_response(),
+        }
+    }
+
     let use_case = CreateDisputeUseCase::new(state.order_repo.clone());
 
     match use_case.execute(dto).await {
-        Ok(_) => StatusCode::NO_CONTENT.into_response(),
+        Ok(_) => {
+            fire_notification(
+                &state,
+                order_id,
+                NotificationType::DisputeOpened,
+                "Buyer opened a dispute",
+                "The buyer reported an issue with this order.",
+                NotificationTarget::Seller,
+            )
+            .await;
+            StatusCode::NO_CONTENT.into_response()
+        }
         Err(error) => map_order_error(error, "Unable to create dispute").into_response(),
     }
 }
@@ -191,9 +322,18 @@ struct UpdateShippingBody {
 
 async fn update_shipping(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path(order_id): Path<String>,
     Json(body): Json<UpdateShippingBody>,
 ) -> impl IntoResponse {
+    let authenticated_user_id = match resolve_authenticated_user_id(&state, &headers).await {
+        Ok(value) => value,
+        Err(error) => return map_optional_auth_error(error).into_response(),
+    };
+    if !state.auth_base_url.trim().is_empty() && authenticated_user_id.is_none() {
+        return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
+    }
+
     if body.status.trim().is_empty() {
         return (StatusCode::BAD_REQUEST, "status is required").into_response();
     }
@@ -202,16 +342,52 @@ async fn update_shipping(
         Ok(value) => value,
         Err(_) => return (StatusCode::BAD_REQUEST, "Invalid order id").into_response(),
     };
+    let normalized_status = body.status.trim().to_lowercase();
     let dto = UpdateShippingDto {
         order_id,
         status: body.status,
         tracking: body.tracking,
     };
 
+    if let Some(user_id) = authenticated_user_id {
+        let guard_use_case = GetOrderUseCase::new(state.order_repo.clone());
+        match guard_use_case.execute(GetOrderDto { order_id }).await {
+            Ok(order) => {
+                if order.seller_id != user_id.to_string() {
+                    return (StatusCode::FORBIDDEN, "Forbidden").into_response();
+                }
+            }
+            Err(_) => return (StatusCode::NOT_FOUND, "Order not found").into_response(),
+        }
+    }
+
     let use_case = UpdateShippingUseCase::new(state.order_repo.clone());
 
     match use_case.execute(dto).await {
-        Ok(_) => StatusCode::NO_CONTENT.into_response(),
+        Ok(_) => {
+            let (notif_type, title, body_text) = match normalized_status.as_str() {
+                "in_transit" | "in transit" | "shipped" | "packed" => (
+                    NotificationType::OrderShipped,
+                    "Order shipped",
+                    "Your order is on the way.",
+                ),
+                _ => (
+                    NotificationType::OrderDelivered,
+                    "Order delivered",
+                    "Your order was marked as delivered. Confirm receipt when it arrives.",
+                ),
+            };
+            fire_notification(
+                &state,
+                order_id,
+                notif_type,
+                title,
+                body_text,
+                NotificationTarget::Buyer,
+            )
+            .await;
+            StatusCode::NO_CONTENT.into_response()
+        }
         Err(error) => map_order_error(error, "Unable to update shipping").into_response(),
     }
 }
@@ -226,10 +402,91 @@ fn parse_stage(input: &str) -> Option<OrderStage> {
     }
 }
 
-fn map_order_error(error: OrderError, fallback_message: &'static str) -> (StatusCode, &'static str) {
+fn map_order_error(
+    error: OrderError,
+    fallback_message: &'static str,
+) -> (StatusCode, &'static str) {
     match error {
         OrderError::NotFound => (StatusCode::NOT_FOUND, "Order not found"),
         OrderError::InvalidTransition => (StatusCode::CONFLICT, "Invalid order transition"),
         OrderError::Database(_) => (StatusCode::INTERNAL_SERVER_ERROR, fallback_message),
+    }
+}
+
+fn map_optional_auth_error(error: OptionalAuthError) -> (StatusCode, &'static str) {
+    match error {
+        OptionalAuthError::Unauthorized => (StatusCode::UNAUTHORIZED, "Unauthorized"),
+        OptionalAuthError::Upstream(message) => {
+            tracing::warn!("order auth validate upstream error: {message}");
+            (
+                StatusCode::BAD_GATEWAY,
+                "Authentication service unavailable",
+            )
+        }
+    }
+}
+
+/// Side of the order being notified. `confirm_order` notifies the seller,
+/// `update_shipping_status` notifies the buyer, `create_dispute` notifies the
+/// seller, etc.
+enum NotificationTarget {
+    Buyer,
+    Seller,
+}
+
+/// Fire-and-forget notification publish triggered after a successful order
+/// mutation (WBS 5.2.1 — event publisher). Failures here must not propagate
+/// to the API caller: the order mutation already committed and the user
+/// expects a 204; we just log and move on.
+async fn fire_notification(
+    state: &AppState,
+    order_id: Uuid,
+    notification_type: NotificationType,
+    title: &str,
+    body: &str,
+    target: NotificationTarget,
+) {
+    let order = match GetOrderUseCase::new(state.order_repo.clone())
+        .execute(GetOrderDto { order_id })
+        .await
+    {
+        Ok(order) => order,
+        Err(error) => {
+            tracing::warn!(
+                ?error,
+                %order_id,
+                "skip notification publish: cannot reload order"
+            );
+            return;
+        }
+    };
+
+    let target_user_id = match target {
+        NotificationTarget::Buyer => order.buyer_id.clone(),
+        NotificationTarget::Seller => order.seller_id.clone(),
+    };
+
+    let payload = NotificationEventPayload {
+        order_id: Some(order_id),
+        notification_type,
+        title: title.to_string(),
+        body: format!("{body} (lot: {lot})", lot = redact_lot(&order),),
+        channel: NotificationChannel::Inbox,
+        metadata: Some(serde_json::json!({ "userId": target_user_id })),
+    };
+
+    if let Err(error) = PublishEventUseCase::new(state.notification_repo.clone())
+        .execute(PublishEventDto { payload })
+        .await
+    {
+        tracing::warn!(?error, %order_id, "notification publish failed");
+    }
+}
+
+fn redact_lot(order: &Order) -> String {
+    if order.lot.len() > 60 {
+        format!("{}…", &order.lot[..60])
+    } else {
+        order.lot.clone()
     }
 }

@@ -1,6 +1,5 @@
-use std::sync::Arc;
-use rust_decimal::Decimal;
 use crate::modules::wallet::domain::traits::WalletRepository;
+use std::sync::Arc;
 
 pub mod balance_usecase;
 pub mod internal_usecases;
@@ -16,11 +15,7 @@ impl WalletUseCases {
         Self { repo }
     }
 
-    fn to_cents(amount: Decimal) -> i64 {
-        (amount * Decimal::new(100, 0)).to_string().parse::<i64>().unwrap_or(0)
-    }
-
-    fn from_cents(amount_cents: i64) -> Decimal {
-        Decimal::new(amount_cents, 2)
+    fn available_cents(balance: i64, held_balance: i64) -> i64 {
+        balance.saturating_sub(held_balance)
     }
 }
