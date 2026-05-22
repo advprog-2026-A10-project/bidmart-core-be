@@ -138,3 +138,6 @@ async fn run_consumer(
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests;
