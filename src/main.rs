@@ -35,6 +35,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         create_runtime_app_state_with_auth(pool.clone(), config.auth_base_url.clone());
     spawn_auto_finalize_worker(pool.clone());
 
+    modules::catalog::infrastructure::messaging::spawn_bid_event_consumer(
+        pool.clone(),
+        config.amqp_url.clone(),
+    );
+
     let router = create_catalog_router(catalog_state)
         .merge(create_bidding_router(bidding_state))
         .merge(create_wallet_router(

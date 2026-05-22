@@ -83,11 +83,26 @@ impl ListingIntegrationPort for PostgresListingIntegrationRepository {
         Ok(())
     }
 
-    async fn update_current_price(&self, _id: Uuid, _new_price: i64) -> Result<(), ListingError> {
+    async fn update_current_price(&self, id: Uuid, new_price: i64) -> Result<(), ListingError> {
+        sqlx::query(
+            "UPDATE listings SET current_price = $2, updated_at = NOW() WHERE id = $1",
+        )
+        .bind(id)
+        .bind(new_price)
+        .execute(&self.pool)
+        .await
+        .map_err(ListingError::DatabaseError)?;
         Ok(())
     }
 
-    async fn increment_bid_count(&self, _id: Uuid) -> Result<(), ListingError> {
+    async fn increment_bid_count(&self, id: Uuid) -> Result<(), ListingError> {
+        sqlx::query(
+            "UPDATE listings SET bid_count = bid_count + 1, updated_at = NOW() WHERE id = $1",
+        )
+        .bind(id)
+        .execute(&self.pool)
+        .await
+        .map_err(ListingError::DatabaseError)?;
         Ok(())
     }
 }

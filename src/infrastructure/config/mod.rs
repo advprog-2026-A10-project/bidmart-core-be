@@ -10,6 +10,7 @@ pub struct AppConfig {
     pub database_url: String,
     pub auth_base_url: String,
     pub auto_migrate_on_startup: bool,
+    pub amqp_url: Option<String>,
 }
 
 impl AppConfig {
@@ -85,12 +86,15 @@ impl AppConfig {
             Err(_) => true,
         };
 
+        let amqp_url = std::env::var("APP_AMQP_URL").ok();
+
         Ok(AppConfig {
             server_host,
             server_port,
             database_url,
             auth_base_url,
             auto_migrate_on_startup,
+            amqp_url,
         })
     }
 }
