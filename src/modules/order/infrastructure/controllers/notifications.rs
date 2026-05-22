@@ -1,9 +1,9 @@
 use axum::{
-    Json, Router,
     extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
     response::IntoResponse,
     routing::{get, patch},
+    Json, Router,
 };
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -15,10 +15,10 @@ use crate::modules::order::application::use_cases::{
     GetNotificationUseCase, ListNotificationsUseCase, MarkNotificationUseCase,
 };
 use crate::modules::order::domain::errors::NotificationError;
-use crate::modules::order::infrastructure::AppState;
 use crate::modules::order::infrastructure::middleware::{
-    OptionalAuthError, resolve_authenticated_user_id,
+    resolve_authenticated_user_id, OptionalAuthError,
 };
+use crate::modules::order::infrastructure::AppState;
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -162,9 +162,31 @@ async fn mark_as_read(
         Err(_) => return (StatusCode::BAD_REQUEST, "Invalid notification id").into_response(),
     };
 
+    let actor_id = actor_id.expect("checked actor id exists");
+    let guard_use_case = GetNotificationUseCase::new(state.notification_repo.clone());
+    match guard_use_case
+        .execute(GetNotificationDto { notification_id })
+        .await
+    {
+        Ok(notification) => {
+            let owner = notification
+                .metadata
+                .as_ref()
+                .and_then(|metadata| metadata.get("userId"))
+                .and_then(|value| value.as_str());
+
+            if owner != Some(actor_id.as_str()) {
+                return (StatusCode::FORBIDDEN, "Forbidden").into_response();
+            }
+        }
+        Err(error) => {
+            return map_notification_error(error, "Unable to load notification").into_response();
+        }
+    }
+
     let dto = MarkNotificationDto {
         notification_id,
-        actor_id: actor_id.expect("checked actor id exists"),
+        actor_id,
     };
     let use_case = MarkNotificationUseCase::new(state.notification_repo.clone());
 

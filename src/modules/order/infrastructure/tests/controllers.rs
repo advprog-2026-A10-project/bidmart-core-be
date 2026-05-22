@@ -1,13 +1,13 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use axum::body::{Body, to_bytes};
+use axum::body::{to_bytes, Body};
 use axum::extract::State;
 use axum::http::{HeaderMap, Method, Request, StatusCode};
 use axum::response::IntoResponse;
 use axum::routing::post;
 use axum::{Json, Router};
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use sqlx::postgres::PgPoolOptions;
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
@@ -38,6 +38,16 @@ fn test_app_with_auth(auth_base_url: String) -> axum::Router {
         .expect("valid lazy database url");
     let mut state = create_app_state(pool);
     state.auth_base_url = auth_base_url;
+    create_router(state)
+}
+
+fn test_app_with_internal_secret(secret: &str) -> axum::Router {
+    let pool = PgPoolOptions::new()
+        .max_connections(1)
+        .connect_lazy("postgres://postgres:postgres@localhost:5432/bidmart_test")
+        .expect("valid lazy database url");
+    let mut state = create_app_state(pool);
+    state.internal_secret = Some(Arc::<str>::from(secret.to_string()));
     create_router(state)
 }
 
@@ -515,6 +525,76 @@ async fn get_notification_returns_forbidden_for_non_owner_when_auth_enabled() {
 }
 
 #[tokio::test]
+async fn get_notification_rejects_invalid_uuid() {
+    let app = test_app();
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method(Method::GET)
+                .uri("/notifications/not-a-uuid")
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn mark_notification_read_rejects_invalid_uuid() {
+    let app = test_app();
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method(Method::PATCH)
+                .uri("/notifications/not-a-uuid/read")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({ "actorId": TEST_BUYER_ONE_ID }).to_string(),
+                ))
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn mark_notification_read_returns_forbidden_for_non_owner_when_auth_enabled() {
+    let mut token_to_user_id = HashMap::new();
+    token_to_user_id.insert(
+        "buyer-one-token".to_string(),
+        Uuid::parse_str(TEST_BUYER_ONE_ID).expect("buyer one uuid"),
+    );
+    token_to_user_id.insert(
+        "buyer-two-token".to_string(),
+        Uuid::parse_str(TEST_BUYER_TWO_ID).expect("buyer two uuid"),
+    );
+
+    let (auth_base_url, auth_handle) = spawn_mock_auth_server(token_to_user_id, None).await;
+    let app = test_app_with_auth(auth_base_url);
+    let notification_id = first_notification_id_with_bearer(&app, "buyer-one-token").await;
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method(Method::PATCH)
+                .uri(format!("/notifications/{}/read", notification_id))
+                .header("authorization", "Bearer buyer-two-token")
+                .header("content-type", "application/json")
+                .body(Body::from(json!({}).to_string()))
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    auth_handle.abort();
+}
+
+#[tokio::test]
 async fn confirm_order_rejects_invalid_uuid() {
     let app = test_app();
     let response = app
@@ -530,6 +610,39 @@ async fn confirm_order_rejects_invalid_uuid() {
         .expect("response");
 
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn confirm_order_returns_forbidden_for_non_buyer_when_auth_enabled() {
+    let mut token_to_user_id = HashMap::new();
+    token_to_user_id.insert(
+        "buyer-one-token".to_string(),
+        Uuid::parse_str(TEST_BUYER_ONE_ID).expect("buyer one uuid"),
+    );
+    token_to_user_id.insert(
+        "buyer-two-token".to_string(),
+        Uuid::parse_str(TEST_BUYER_TWO_ID).expect("buyer two uuid"),
+    );
+
+    let (auth_base_url, auth_handle) = spawn_mock_auth_server(token_to_user_id, None).await;
+    let app = test_app_with_auth(auth_base_url);
+    let order_id = first_order_id_with_bearer(&app, "buyer-one-token").await;
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri(format!("/orders/{}/confirm", order_id))
+                .header("authorization", "Bearer buyer-two-token")
+                .header("content-type", "application/json")
+                .body(Body::from(json!({}).to_string()))
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    auth_handle.abort();
 }
 
 #[tokio::test]
@@ -577,6 +690,45 @@ async fn dispute_requires_reason_phrase_barang_tidak_sesuai() {
 }
 
 #[tokio::test]
+async fn create_dispute_returns_forbidden_for_non_buyer_when_auth_enabled() {
+    let mut token_to_user_id = HashMap::new();
+    token_to_user_id.insert(
+        "buyer-one-token".to_string(),
+        Uuid::parse_str(TEST_BUYER_ONE_ID).expect("buyer one uuid"),
+    );
+    token_to_user_id.insert(
+        "buyer-two-token".to_string(),
+        Uuid::parse_str(TEST_BUYER_TWO_ID).expect("buyer two uuid"),
+    );
+
+    let (auth_base_url, auth_handle) = spawn_mock_auth_server(token_to_user_id, None).await;
+    let app = test_app_with_auth(auth_base_url);
+    let order_id = first_order_id_with_bearer(&app, "buyer-one-token").await;
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri(format!("/orders/{}/dispute/new", order_id))
+                .header("authorization", "Bearer buyer-two-token")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "reason": "Barang tidak sesuai dengan foto",
+                        "details": "Attempt by non-owner"
+                    })
+                    .to_string(),
+                ))
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    auth_handle.abort();
+}
+
+#[tokio::test]
 async fn update_shipping_rejects_invalid_status_value() {
     let app = test_app();
     let order_id = first_order_id(&app).await;
@@ -605,7 +757,7 @@ async fn update_shipping_rejects_invalid_status_value() {
 async fn mark_notification_read_twice_returns_conflict_on_second_call() {
     let app = test_app();
     let notification_id = first_notification_id(&app).await;
-    let payload = json!({ "actorId": "buyer-vel" }).to_string();
+    let payload = json!({ "actorId": TEST_BUYER_ONE_ID }).to_string();
 
     let first_response = app
         .clone()
@@ -1025,10 +1177,81 @@ async fn publish_event_adds_notification_for_target_user() {
 }
 
 #[tokio::test]
+async fn publish_event_requires_internal_secret_when_configured() {
+    let app = test_app_with_internal_secret("order-secret");
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/events/notifications")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "orderId": null,
+                        "type": "OrderUpdate",
+                        "title": "Unauthorized event",
+                        "body": "This should not be accepted.",
+                        "channel": "inbox",
+                        "metadata": {
+                            "userId": TEST_BUYER_ONE_ID
+                        }
+                    })
+                    .to_string(),
+                ))
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn publish_event_accepts_valid_internal_secret_when_configured() {
+    let app = test_app_with_internal_secret("order-secret");
+    let before = list_notifications_by_user(&app, TEST_BUYER_ONE_ID).await;
+    let before_count = before["data"].as_array().expect("data").len();
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/events/notifications")
+                .header("x-internal-secret", "order-secret")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "orderId": null,
+                        "type": "OrderUpdate",
+                        "title": "Authorized event",
+                        "body": "This should be accepted.",
+                        "channel": "inbox",
+                        "metadata": {
+                            "userId": TEST_BUYER_ONE_ID
+                        }
+                    })
+                    .to_string(),
+                ))
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+
+    assert_eq!(response.status(), StatusCode::NO_CONTENT);
+
+    let after = list_notifications_by_user(&app, TEST_BUYER_ONE_ID).await;
+    assert_eq!(
+        after["data"].as_array().expect("data").len(),
+        before_count + 1
+    );
+}
+
+#[tokio::test]
 async fn mark_notification_read_parallel_requests_are_consistent() {
     let app = test_app();
     let notification_id = first_notification_id(&app).await;
-    let payload = json!({ "actorId": "buyer-vel" }).to_string();
+    let payload = json!({ "actorId": TEST_BUYER_ONE_ID }).to_string();
 
     let request_a = Request::builder()
         .method(Method::PATCH)
