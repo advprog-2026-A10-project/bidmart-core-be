@@ -1,5 +1,7 @@
 use std::collections::HashMap;
+use std::fs;
 use std::sync::Arc;
+use std::time::Instant;
 
 use axum::body::{to_bytes, Body};
 use axum::extract::State;
@@ -21,6 +23,9 @@ use super::support::create_app_state;
 const TEST_BUYER_ONE_ID: &str = "11111111-1111-1111-1111-111111111111";
 const TEST_SELLER_ONE_ID: &str = "22222222-2222-2222-2222-222222222222";
 const TEST_BUYER_TWO_ID: &str = "33333333-3333-3333-3333-333333333333";
+const DEFAULT_IN_MEMORY_PROFILE_ITERATIONS: usize = 200;
+const DEFAULT_IN_MEMORY_PROFILE_WARMUP: usize = 20;
+const DEFAULT_IN_MEMORY_PROFILE_APDEX_MS: f64 = 10.0;
 
 fn test_app() -> axum::Router {
     let pool = PgPoolOptions::new()
@@ -1276,4 +1281,231 @@ async fn mark_notification_read_parallel_requests_are_consistent() {
     let mut statuses = vec![status_a, status_b];
     statuses.sort();
     assert_eq!(statuses, vec![StatusCode::NO_CONTENT, StatusCode::CONFLICT]);
+}
+
+#[derive(Clone)]
+struct ProfileTarget {
+    name: &'static str,
+    method: Method,
+    path: String,
+}
+
+#[tokio::test]
+#[ignore = "manual in-memory profiling; run with --ignored --nocapture"]
+async fn profile_order_notifications_without_database() {
+    let iterations = std::env::var("ORDER_PROFILE_ITERATIONS")
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .filter(|value| *value > 0)
+        .unwrap_or(DEFAULT_IN_MEMORY_PROFILE_ITERATIONS);
+    let warmup = std::env::var("ORDER_PROFILE_WARMUP")
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .unwrap_or(DEFAULT_IN_MEMORY_PROFILE_WARMUP);
+    let apdex_threshold_ms = std::env::var("ORDER_PROFILE_APDEX_MS")
+        .ok()
+        .and_then(|value| value.parse::<f64>().ok())
+        .filter(|value| *value > 0.0)
+        .unwrap_or(DEFAULT_IN_MEMORY_PROFILE_APDEX_MS);
+
+    let app = test_app();
+    let order_id = first_order_id(&app).await;
+    let notification_id = first_notification_id(&app).await;
+    let targets = vec![
+        ProfileTarget {
+            name: "buyer_orders_all",
+            method: Method::GET,
+            path: "/orders".to_string(),
+        },
+        ProfileTarget {
+            name: "buyer_orders_active",
+            method: Method::GET,
+            path: "/orders?stage=active".to_string(),
+        },
+        ProfileTarget {
+            name: "buyer_orders_processing",
+            method: Method::GET,
+            path: "/orders?stage=processing".to_string(),
+        },
+        ProfileTarget {
+            name: "seller_orders_all",
+            method: Method::GET,
+            path: "/seller/orders".to_string(),
+        },
+        ProfileTarget {
+            name: "buyer_order_detail",
+            method: Method::GET,
+            path: format!("/orders/{order_id}"),
+        },
+        ProfileTarget {
+            name: "seller_order_detail",
+            method: Method::GET,
+            path: format!("/seller/orders/{order_id}"),
+        },
+        ProfileTarget {
+            name: "notifications_all",
+            method: Method::GET,
+            path: "/notifications?limit=20".to_string(),
+        },
+        ProfileTarget {
+            name: "notifications_unread",
+            method: Method::GET,
+            path: "/notifications?limit=20&unreadOnly=true".to_string(),
+        },
+        ProfileTarget {
+            name: "notification_detail",
+            method: Method::GET,
+            path: format!("/notifications/{notification_id}"),
+        },
+    ];
+
+    for target in &targets {
+        for _ in 0..warmup {
+            profile_request(&app, target).await;
+        }
+    }
+
+    let mut summaries = Vec::new();
+    for target in &targets {
+        let mut latencies = Vec::with_capacity(iterations);
+        let mut success_count = 0usize;
+
+        for _ in 0..iterations {
+            let result = profile_request(&app, target).await;
+            latencies.push(result.elapsed_ms);
+            if result.status.is_success() {
+                success_count += 1;
+            }
+        }
+
+        summaries.push(build_profile_summary(
+            target,
+            &latencies,
+            success_count,
+            apdex_threshold_ms,
+        ));
+    }
+
+    println!(
+        "in-memory order/notification profile: iterations={iterations}, warmup={warmup}, apdex_t={apdex_threshold_ms}ms"
+    );
+    for summary in &summaries {
+        println!(
+            "{:<28} count={:<4} errors={:<4} avg={:<8.3} p50={:<8.3} p95={:<8.3} p99={:<8.3} apdex={:<5.3}",
+            summary["endpoint"].as_str().unwrap_or_default(),
+            summary["count"].as_u64().unwrap_or_default(),
+            summary["errorCount"].as_u64().unwrap_or_default(),
+            summary["averageMs"].as_f64().unwrap_or_default(),
+            summary["p50Ms"].as_f64().unwrap_or_default(),
+            summary["p95Ms"].as_f64().unwrap_or_default(),
+            summary["p99Ms"].as_f64().unwrap_or_default(),
+            summary["apdex"].as_f64().unwrap_or_default(),
+        );
+    }
+
+    fs::create_dir_all("performance/results").expect("create performance results directory");
+    let output_path = format!(
+        "performance/results/in-memory-order-notification-profile-{}.json",
+        chrono::Utc::now().format("%Y%m%d-%H%M%S")
+    );
+    let report = json!({
+        "profileType": "in-memory-controller",
+        "database": "not used",
+        "iterations": iterations,
+        "warmup": warmup,
+        "apdexSatisfiedMs": apdex_threshold_ms,
+        "orderId": order_id,
+        "notificationId": notification_id,
+        "summary": summaries,
+    });
+    fs::write(
+        &output_path,
+        serde_json::to_string_pretty(&report).expect("serialize profile report"),
+    )
+    .expect("write profile report");
+    println!("wrote {output_path}");
+}
+
+struct ProfileRequestResult {
+    status: StatusCode,
+    elapsed_ms: f64,
+}
+
+async fn profile_request(app: &axum::Router, target: &ProfileTarget) -> ProfileRequestResult {
+    let request = Request::builder()
+        .method(target.method.clone())
+        .uri(&target.path)
+        .body(Body::empty())
+        .expect("profile request");
+
+    let started_at = Instant::now();
+    let response = app
+        .clone()
+        .oneshot(request)
+        .await
+        .expect("profile response");
+    let status = response.status();
+    let _ = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("consume profile body");
+    let elapsed_ms = started_at.elapsed().as_secs_f64() * 1000.0;
+
+    ProfileRequestResult { status, elapsed_ms }
+}
+
+fn build_profile_summary(
+    target: &ProfileTarget,
+    latencies: &[f64],
+    success_count: usize,
+    apdex_threshold_ms: f64,
+) -> Value {
+    let count = latencies.len();
+    let average_ms = if count == 0 {
+        0.0
+    } else {
+        latencies.iter().sum::<f64>() / count as f64
+    };
+    let satisfied = latencies
+        .iter()
+        .filter(|value| **value <= apdex_threshold_ms)
+        .count();
+    let tolerated = latencies
+        .iter()
+        .filter(|value| **value > apdex_threshold_ms && **value <= apdex_threshold_ms * 4.0)
+        .count();
+    let apdex = if count == 0 {
+        0.0
+    } else {
+        (satisfied as f64 + tolerated as f64 / 2.0) / count as f64
+    };
+
+    json!({
+        "endpoint": target.name,
+        "method": target.method.as_str(),
+        "path": target.path,
+        "count": count,
+        "successCount": success_count,
+        "errorCount": count.saturating_sub(success_count),
+        "averageMs": round_ms(average_ms),
+        "p50Ms": round_ms(percentile(latencies, 50.0)),
+        "p95Ms": round_ms(percentile(latencies, 95.0)),
+        "p99Ms": round_ms(percentile(latencies, 99.0)),
+        "maxMs": round_ms(latencies.iter().copied().fold(0.0, f64::max)),
+        "apdex": (apdex * 1000.0).round() / 1000.0,
+    })
+}
+
+fn percentile(values: &[f64], percentile: f64) -> f64 {
+    if values.is_empty() {
+        return 0.0;
+    }
+
+    let mut sorted = values.to_vec();
+    sorted.sort_by(|left, right| left.total_cmp(right));
+    let index = ((percentile / 100.0) * sorted.len() as f64).ceil() as usize;
+    sorted[index.saturating_sub(1).min(sorted.len() - 1)]
+}
+
+fn round_ms(value: f64) -> f64 {
+    (value * 1000.0).round() / 1000.0
 }
