@@ -13,8 +13,8 @@ pub mod services;
 
 use controllers::{buyer_controller, category_controller, internal_controller, seller_controller};
 use repositories::{
-    PostgresAuctionLifecycleRepository, PostgresCategoryRepository,
-    PostgresListingImageRepository, PostgresListingIntegrationRepository, PostgresListingRepository,
+    PostgresAuctionLifecycleRepository, PostgresCategoryRepository, PostgresListingImageRepository,
+    PostgresListingIntegrationRepository, PostgresListingRepository,
 };
 use services::ListingIntegrationService;
 

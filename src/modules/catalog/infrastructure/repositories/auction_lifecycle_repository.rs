@@ -27,7 +27,11 @@ impl AuctionLifecyclePort for PostgresAuctionLifecycleRepository {
         listing: &Listing,
         image_url: Option<String>,
     ) -> Result<Uuid, ListingError> {
-        let mut tx = self.pool.begin().await.map_err(ListingError::DatabaseError)?;
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(ListingError::DatabaseError)?;
 
         let now = Utc::now();
         let initial_status = if listing.starts_at <= now {
@@ -81,15 +85,14 @@ impl AuctionLifecyclePort for PostgresAuctionLifecycleRepository {
 
         let auction_id: Uuid = row.try_get("id").map_err(ListingError::DatabaseError)?;
 
-        let affected = sqlx::query(
-            "UPDATE listings SET auction_id = $2, updated_at = NOW() WHERE id = $1",
-        )
-        .bind(listing.id)
-        .bind(auction_id)
-        .execute(&mut *tx)
-        .await
-        .map_err(ListingError::DatabaseError)?
-        .rows_affected();
+        let affected =
+            sqlx::query("UPDATE listings SET auction_id = $2, updated_at = NOW() WHERE id = $1")
+                .bind(listing.id)
+                .bind(auction_id)
+                .execute(&mut *tx)
+                .await
+                .map_err(ListingError::DatabaseError)?
+                .rows_affected();
 
         if affected == 0 {
             tx.rollback().await.map_err(ListingError::DatabaseError)?;
