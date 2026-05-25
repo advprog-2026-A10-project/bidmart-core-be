@@ -10,6 +10,20 @@ pub struct AppConfig {
     pub database_url: String,
     pub auth_base_url: String,
     pub auto_migrate_on_startup: bool,
+    pub storage: StorageConfig,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+#[allow(dead_code)]
+pub struct StorageConfig {
+    pub provider: String,
+    pub endpoint: String,
+    pub bucket: String,
+    pub region: String,
+    pub access_key: String,
+    pub secret_key: String,
+    pub force_path_style: bool,
+    pub public_base_url: String,
 }
 
 impl AppConfig {
@@ -36,36 +50,21 @@ impl AppConfig {
         }
 
         // Read values from environment directly (case-insensitive)
-        let server_host = std::env::var("APP_SERVER_HOST")
-            .or_else(|_| std::env::var("APP_server_host"))
-            .or_else(|_| std::env::var("app_server_host"))
-            .map_err(|_| ConfigError::Message("Missing APP_SERVER_HOST".to_string()))?;
+        let server_host = required_env("APP_SERVER_HOST", None)?;
 
-        let server_port = std::env::var("APP_SERVER_PORT")
-            .or_else(|_| std::env::var("APP_server_port"))
-            .or_else(|_| std::env::var("app_server_port"))
-            .map_err(|_| ConfigError::Message("Missing APP_SERVER_PORT".to_string()))?
+        let server_port = required_env("APP_SERVER_PORT", None)?
             .parse::<u16>()
             .map_err(|_| ConfigError::Message("Invalid SERVER_PORT".to_string()))?;
 
-        let database_url = std::env::var("APP_DATABASE_URL")
-            .or_else(|_| std::env::var("APP_database_url"))
-            .or_else(|_| std::env::var("app_database_url"))
-            .map_err(|_| ConfigError::Message("Missing APP_DATABASE_URL".to_string()))?;
+        let database_url = required_env("APP_DATABASE_URL", None)?;
 
-        let auth_base_url = std::env::var("APP_AUTH_BASE_URL")
-            .or_else(|_| std::env::var("APP_auth_base_url"))
-            .or_else(|_| std::env::var("app_auth_base_url"))
-            .map_err(|_| ConfigError::Message("Missing APP_AUTH_BASE_URL".to_string()))?
-            .trim()
-            .to_string();
+        let auth_base_url = required_env("APP_AUTH_BASE_URL", None)?.trim().to_string();
         if auth_base_url.is_empty() {
             // Fail-closed: an empty `auth_base_url` would cause downstream
             // modules (orders, wallet, catalog) to skip auth validation
             // silently. Reject at startup so the misconfiguration is loud.
             return Err(ConfigError::Message(
-                "APP_AUTH_BASE_URL cannot be empty — set it to the auth-be base URL"
-                    .to_string(),
+                "APP_AUTH_BASE_URL cannot be empty — set it to the auth-be base URL".to_string(),
             ));
         }
 
@@ -85,12 +84,70 @@ impl AppConfig {
             Err(_) => true,
         };
 
+        let storage = StorageConfig {
+            provider: read_env("APP_STORAGE_PROVIDER")
+                .unwrap_or_else(|_| "minio".to_string())
+                .trim()
+                .to_string(),
+            endpoint: required_env(
+                "APP_STORAGE_ENDPOINT",
+                Some("http://localhost:9000".to_string()),
+            )?
+            .trim()
+            .trim_end_matches('/')
+            .to_string(),
+            bucket: required_env(
+                "APP_STORAGE_BUCKET",
+                Some("bidmart-listing-images".to_string()),
+            )?
+            .trim()
+            .to_string(),
+            region: required_env("APP_STORAGE_REGION", Some("us-east-1".to_string()))?
+                .trim()
+                .to_string(),
+            access_key: required_env("APP_STORAGE_ACCESS_KEY", Some("minioadmin".to_string()))?
+                .trim()
+                .to_string(),
+            secret_key: required_env("APP_STORAGE_SECRET_KEY", Some("minioadmin123".to_string()))?
+                .trim()
+                .to_string(),
+            force_path_style: read_env("APP_STORAGE_FORCE_PATH_STYLE")
+                .unwrap_or_else(|_| "true".to_string())
+                .parse::<bool>()
+                .map_err(|_| {
+                    ConfigError::Message(
+                        "Invalid APP_STORAGE_FORCE_PATH_STYLE (expected true/false)".to_string(),
+                    )
+                })?,
+            public_base_url: required_env(
+                "APP_STORAGE_PUBLIC_BASE_URL",
+                Some("http://localhost:9000/bidmart-listing-images".to_string()),
+            )?
+            .trim()
+            .trim_end_matches('/')
+            .to_string(),
+        };
+
         Ok(AppConfig {
             server_host,
             server_port,
             database_url,
             auth_base_url,
             auto_migrate_on_startup,
+            storage,
         })
+    }
+}
+
+fn read_env(key: &str) -> Result<String, std::env::VarError> {
+    std::env::var(key)
+        .or_else(|_| std::env::var(key.to_ascii_lowercase()))
+        .or_else(|_| std::env::var(format!("APP_{}", &key[4..].to_ascii_lowercase())))
+}
+
+fn required_env(key: &str, default: Option<String>) -> Result<String, ConfigError> {
+    match read_env(key) {
+        Ok(value) => Ok(value),
+        Err(_) => default.ok_or_else(|| ConfigError::Message(format!("Missing {key}"))),
     }
 }

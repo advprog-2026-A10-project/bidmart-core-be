@@ -25,6 +25,12 @@ pub struct UpdateListingRequest {
     pub image_urls: Option<Vec<String>>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct PresignListingUploadRequest {
+    pub file_name: String,
+    pub content_type: Option<String>,
+}
+
 // Query / Pagination
 
 /// Query params untuk list_my_listings (seller).
@@ -113,4 +119,12 @@ pub struct ListingDetailResponse {
     #[serde(flatten)]
     pub listing: ListingResponse,
     pub images: Vec<ListingImageResponse>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PresignListingUploadResponse {
+    pub upload_url: String,
+    pub public_url: String,
+    pub object_key: String,
+    pub expires_in_seconds: u64,
 }

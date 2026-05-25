@@ -7,7 +7,8 @@ use uuid::Uuid;
 
 use crate::modules::catalog::application::dto::listing_dto::{
     CreateListingRequest, ListingDetailResponse, ListingQueryParams, ListingResponse,
-    PaginatedResponse, UpdateListingRequest,
+    PaginatedResponse, PresignListingUploadRequest, PresignListingUploadResponse,
+    UpdateListingRequest,
 };
 use crate::modules::catalog::domain::errors::ListingError;
 use crate::modules::catalog::infrastructure::middleware::AuthUser;
@@ -80,4 +81,23 @@ pub async fn publish_listing(
 ) -> Result<Json<ListingDetailResponse>, ListingError> {
     let result = state.listing_use_cases.publish_listing(auth.id, id).await?;
     Ok(Json(result))
+}
+
+// POST /api/v1/seller/listings/uploads/presign
+pub async fn presign_listing_upload(
+    State(state): State<AppState>,
+    Extension(auth): Extension<AuthUser>,
+    Json(body): Json<PresignListingUploadRequest>,
+) -> Result<Json<PresignListingUploadResponse>, ListingError> {
+    let presigned = state
+        .object_storage_service
+        .presign_listing_image_upload(auth.id, &body.file_name, body.content_type.as_deref())
+        .await?;
+
+    Ok(Json(PresignListingUploadResponse {
+        upload_url: presigned.upload_url,
+        public_url: presigned.public_url,
+        object_key: presigned.object_key,
+        expires_in_seconds: presigned.expires_in_seconds,
+    }))
 }

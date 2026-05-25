@@ -63,12 +63,24 @@ impl BuyerListingUseCases {
         };
 
         let (listings, total) = self.listing_repo.list_listings(filter).await?;
+        let mut data = Vec::with_capacity(listings.len());
+
+        for listing in listings {
+            let thumbnail_url = self
+                .image_repo
+                .get_listing_images(listing.id)
+                .await?
+                .into_iter()
+                .min_by_key(|image| image.order)
+                .map(|image| image.url);
+
+            let mut response = BuyerListingResponse::from(listing);
+            response.thumbnail_url = thumbnail_url;
+            data.push(response);
+        }
 
         Ok(PaginatedResponse {
-            data: listings
-                .into_iter()
-                .map(BuyerListingResponse::from)
-                .collect(),
+            data,
             total,
             page,
             page_size,
@@ -90,9 +102,15 @@ impl BuyerListingUseCases {
         }
 
         let images = self.image_repo.get_listing_images(listing_id).await?;
+        let thumbnail_url = images
+            .iter()
+            .min_by_key(|image| image.order)
+            .map(|image| image.url.clone());
+        let mut listing_response = BuyerListingResponse::from(listing);
+        listing_response.thumbnail_url = thumbnail_url;
 
         Ok(BuyerListingDetailResponse {
-            listing: BuyerListingResponse::from(listing),
+            listing: listing_response,
             images: images.into_iter().map(ListingImageResponse::from).collect(),
         })
     }
@@ -160,12 +178,24 @@ impl BuyerListingUseCases {
         };
 
         let (listings, total) = self.listing_repo.list_listings(filter).await?;
+        let mut data = Vec::with_capacity(listings.len());
+
+        for listing in listings {
+            let thumbnail_url = self
+                .image_repo
+                .get_listing_images(listing.id)
+                .await?
+                .into_iter()
+                .min_by_key(|image| image.order)
+                .map(|image| image.url);
+
+            let mut response = BuyerListingResponse::from(listing);
+            response.thumbnail_url = thumbnail_url;
+            data.push(response);
+        }
 
         Ok(PaginatedResponse {
-            data: listings
-                .into_iter()
-                .map(BuyerListingResponse::from)
-                .collect(),
+            data,
             total,
             page,
             page_size,

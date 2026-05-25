@@ -23,6 +23,7 @@ pub struct BuyerListingResponse {
     pub ends_at: DateTime<Utc>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    pub thumbnail_url: Option<String>,
 }
 
 impl From<Listing> for BuyerListingResponse {
@@ -44,6 +45,7 @@ impl From<Listing> for BuyerListingResponse {
             ends_at: l.ends_at,
             created_at: l.created_at,
             updated_at: l.updated_at,
+            thumbnail_url: None,
         }
     }
 }

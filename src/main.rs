@@ -29,7 +29,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         run_pending_migrations(&pool).await?;
     }
 
-    let catalog_state = AppState::new(pool.clone(), config.auth_base_url.clone());
+    let catalog_state = AppState::new(
+        pool.clone(),
+        config.auth_base_url.clone(),
+        config.storage.clone(),
+    )
+    .await?;
     let bidding_state = BiddingAppState::new(pool.clone(), config.auth_base_url.clone());
     let order_state =
         create_runtime_app_state_with_auth(pool.clone(), config.auth_base_url.clone());

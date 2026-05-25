@@ -16,12 +16,14 @@ use repositories::{
     PostgresAuctionLifecycleRepository, PostgresCategoryRepository, PostgresListingImageRepository,
     PostgresListingIntegrationRepository, PostgresListingRepository,
 };
-use services::ListingIntegrationService;
+use services::{ListingIntegrationService, ObjectStorageService};
 
+use crate::infrastructure::config::StorageConfig;
 use crate::modules::catalog::application::use_cases::{
     buyer_listing_use_cases::BuyerListingUseCases, category_use_cases::CategoryUseCases,
     listing_use_cases::ListingUseCases,
 };
+use crate::modules::catalog::domain::errors::ListingError;
 use crate::modules::catalog::domain::traits::{AuctionLifecyclePort, ListingIntegrationPort};
 
 #[derive(Clone)]
@@ -30,12 +32,17 @@ pub struct AppState {
     pub buyer_listing_use_cases: Arc<BuyerListingUseCases>,
     pub category_use_cases: Arc<CategoryUseCases>,
     pub integration_service: Arc<dyn ListingIntegrationPort>,
+    pub object_storage_service: Arc<ObjectStorageService>,
     pub auth_base_url: String,
     pub auth_http_client: Client,
 }
 
 impl AppState {
-    pub fn new(pool: PgPool, auth_base_url: String) -> Self {
+    pub async fn new(
+        pool: PgPool,
+        auth_base_url: String,
+        storage: StorageConfig,
+    ) -> Result<Self, ListingError> {
         let listing_repo = Arc::new(PostgresListingRepository::new(pool.clone()));
         let image_repo = Arc::new(PostgresListingImageRepository::new(pool.clone()));
         let category_repo = Arc::new(PostgresCategoryRepository::new(pool.clone()));
@@ -43,8 +50,9 @@ impl AppState {
             Arc::new(PostgresListingIntegrationRepository::new(pool.clone()));
         let auction_lifecycle: Arc<dyn AuctionLifecyclePort> =
             Arc::new(PostgresAuctionLifecycleRepository::new(pool.clone()));
+        let object_storage_service = Arc::new(ObjectStorageService::new(&storage).await?);
 
-        Self {
+        Ok(Self {
             listing_use_cases: Arc::new(ListingUseCases::new(
                 listing_repo.clone(),
                 image_repo.clone(),
@@ -58,14 +66,19 @@ impl AppState {
             )),
             category_use_cases: Arc::new(CategoryUseCases::new(category_repo)),
             integration_service: Arc::new(ListingIntegrationService::new(integration_repo)),
+            object_storage_service,
             auth_base_url,
             auth_http_client: Client::new(),
-        }
+        })
     }
 }
 
 pub fn create_router(state: AppState) -> Router {
     let seller_routes = Router::new()
+        .route(
+            "/seller/listings/uploads/presign",
+            routing::post(seller_controller::presign_listing_upload),
+        )
         .route(
             "/seller/listings",
             routing::get(seller_controller::list_my_listings)
