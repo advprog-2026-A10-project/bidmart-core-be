@@ -1,6 +1,6 @@
 use axum::{
-    Extension, Json,
     extract::{Path, Query, State},
+    Extension, Json,
 };
 use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
@@ -9,8 +9,12 @@ use std::cmp::Ordering;
 use uuid::Uuid;
 
 use crate::modules::bidding::domain::errors::BiddingError;
-use crate::modules::bidding::infrastructure::AppState;
 use crate::modules::bidding::infrastructure::middleware::AuthUser;
+use crate::modules::bidding::infrastructure::AppState;
+use crate::modules::wallet::infrastructure::services::{
+    convert_hold_to_payment, credit_auction_payment, hold_bid_funds, release_bid_hold,
+    WalletLedgerError,
+};
 
 #[derive(Serialize, Clone, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -353,83 +357,17 @@ async fn hold_wallet_for_bid(
     auction_id: Uuid,
     amount_to_hold: i64,
 ) -> Result<(), BiddingError> {
-    if amount_to_hold <= 0 {
-        return Ok(());
+    hold_bid_funds(tx, user_id, auction_id, amount_to_hold)
+        .await
+        .map_err(map_wallet_ledger_error)
+}
+
+fn map_wallet_ledger_error(error: WalletLedgerError) -> BiddingError {
+    match error {
+        WalletLedgerError::InsufficientBalance => BiddingError::InsufficientBalance,
+        WalletLedgerError::Validation(message) => BiddingError::ValidationError(message),
+        WalletLedgerError::Database(error) => BiddingError::DatabaseError(error),
     }
-
-    let wallet_row = sqlx::query(
-        r#"
-        SELECT user_id, balance, held_balance
-        FROM wallets
-        WHERE user_id = $1
-        FOR UPDATE
-        "#,
-    )
-    .bind(user_id)
-    .fetch_optional(&mut **tx)
-    .await?
-    .ok_or(BiddingError::InsufficientBalance)?;
-
-    let balance: i64 = wallet_row.try_get("balance")?;
-    let held_balance: i64 = wallet_row.try_get("held_balance")?;
-    let available = balance.saturating_sub(held_balance);
-    if available < amount_to_hold {
-        return Err(BiddingError::InsufficientBalance);
-    }
-
-    let updated_wallet = sqlx::query(
-        r#"
-        UPDATE wallets
-        SET held_balance = held_balance + $2,
-            updated_at = CURRENT_TIMESTAMP
-        WHERE user_id = $1
-          AND (held_balance + $2) <= balance
-        RETURNING balance, held_balance
-        "#,
-    )
-    .bind(user_id)
-    .bind(amount_to_hold)
-    .fetch_optional(&mut **tx)
-    .await?
-    .ok_or(BiddingError::InsufficientBalance)?;
-
-    let balance_after: i64 = updated_wallet.try_get("balance")?;
-
-    sqlx::query(
-        r#"
-        INSERT INTO wallet_transactions (
-            wallet_id,
-            type,
-            status,
-            amount,
-            balance_after,
-            reference_id,
-            reference_type,
-            description,
-            completed_at
-        )
-        VALUES (
-            $1,
-            'BID_HOLD'::transaction_type,
-            'COMPLETED'::transaction_status,
-            $2,
-            $3,
-            $4,
-            'auction'::reference_type,
-            $5,
-            CURRENT_TIMESTAMP
-        )
-        "#,
-    )
-    .bind(user_id)
-    .bind(amount_to_hold)
-    .bind(balance_after)
-    .bind(auction_id)
-    .bind(format!("Bid hold for auction {}", auction_id))
-    .execute(&mut **tx)
-    .await?;
-
-    Ok(())
 }
 
 async fn create_notification(
@@ -477,98 +415,9 @@ async fn release_wallet_for_outbid(
     auction_id: Uuid,
     amount_to_release: i64,
 ) -> Result<(), BiddingError> {
-    if amount_to_release <= 0 {
-        return Ok(());
-    }
-
-    let wallet_row = sqlx::query(
-        r#"
-        SELECT user_id, balance, held_balance
-        FROM wallets
-        WHERE user_id = $1
-        FOR UPDATE
-        "#,
-    )
-    .bind(user_id)
-    .fetch_optional(&mut **tx)
-    .await?
-    .ok_or(BiddingError::InsufficientBalance)?;
-
-    let held_balance: i64 = wallet_row.try_get("held_balance")?;
-    if held_balance < amount_to_release {
-        return Err(BiddingError::InsufficientBalance);
-    }
-
-    let updated_wallet = sqlx::query(
-        r#"
-        UPDATE wallets
-        SET held_balance = held_balance - $2,
-            updated_at = CURRENT_TIMESTAMP
-        WHERE user_id = $1
-          AND (held_balance - $2) >= 0
-        RETURNING balance, held_balance
-        "#,
-    )
-    .bind(user_id)
-    .bind(amount_to_release)
-    .fetch_optional(&mut **tx)
-    .await?
-    .ok_or(BiddingError::InsufficientBalance)?;
-
-    let balance_after: i64 = updated_wallet.try_get("balance")?;
-
-    sqlx::query(
-        r#"
-        INSERT INTO wallet_transactions (
-            wallet_id,
-            type,
-            status,
-            amount,
-            balance_after,
-            reference_id,
-            reference_type,
-            description,
-            completed_at
-        )
-        VALUES (
-            $1,
-            'BID_RELEASE'::transaction_type,
-            'COMPLETED'::transaction_status,
-            $2,
-            $3,
-            $4,
-            'auction'::reference_type,
-            $5,
-            CURRENT_TIMESTAMP
-        )
-        "#,
-    )
-    .bind(user_id)
-    .bind(amount_to_release)
-    .bind(balance_after)
-    .bind(auction_id)
-    .bind(format!("Bid release for auction {}", auction_id))
-    .execute(&mut **tx)
-    .await?;
-
-    Ok(())
-}
-
-async fn ensure_wallet_exists(
-    tx: &mut Transaction<'_, Postgres>,
-    user_id: Uuid,
-) -> Result<(), BiddingError> {
-    sqlx::query(
-        r#"
-        INSERT INTO wallets (user_id, balance, held_balance)
-        VALUES ($1, 0, 0)
-        ON CONFLICT (user_id) DO NOTHING
-        "#,
-    )
-    .bind(user_id)
-    .execute(&mut **tx)
-    .await?;
-    Ok(())
+    release_bid_hold(tx, user_id, auction_id, amount_to_release)
+        .await
+        .map_err(map_wallet_ledger_error)
 }
 
 async fn convert_winner_hold_to_payment(
@@ -577,67 +426,9 @@ async fn convert_winner_hold_to_payment(
     auction_id: Uuid,
     amount: i64,
 ) -> Result<(), BiddingError> {
-    if amount <= 0 {
-        return Err(BiddingError::ValidationError(
-            "winning amount must be greater than 0".to_string(),
-        ));
-    }
-
-    let updated_wallet = sqlx::query(
-        r#"
-        UPDATE wallets
-        SET balance = balance - $2,
-            held_balance = held_balance - $2,
-            updated_at = CURRENT_TIMESTAMP
-        WHERE user_id = $1
-          AND held_balance >= $2
-          AND balance >= $2
-        RETURNING balance, held_balance
-        "#,
-    )
-    .bind(winner_id)
-    .bind(amount)
-    .fetch_optional(&mut **tx)
-    .await?
-    .ok_or(BiddingError::InsufficientBalance)?;
-
-    let balance_after: i64 = updated_wallet.try_get("balance")?;
-
-    sqlx::query(
-        r#"
-        INSERT INTO wallet_transactions (
-            wallet_id,
-            type,
-            status,
-            amount,
-            balance_after,
-            reference_id,
-            reference_type,
-            description,
-            completed_at
-        )
-        VALUES (
-            $1,
-            'BID_CONVERT'::transaction_type,
-            'COMPLETED'::transaction_status,
-            $2,
-            $3,
-            $4,
-            'auction'::reference_type,
-            $5,
-            CURRENT_TIMESTAMP
-        )
-        "#,
-    )
-    .bind(winner_id)
-    .bind(amount)
-    .bind(balance_after)
-    .bind(auction_id)
-    .bind(format!("Bid convert for auction {}", auction_id))
-    .execute(&mut **tx)
-    .await?;
-
-    Ok(())
+    convert_hold_to_payment(tx, winner_id, auction_id, amount)
+        .await
+        .map_err(map_wallet_ledger_error)
 }
 
 async fn credit_seller_payment(
@@ -646,65 +437,9 @@ async fn credit_seller_payment(
     auction_id: Uuid,
     amount: i64,
 ) -> Result<(), BiddingError> {
-    if amount <= 0 {
-        return Err(BiddingError::ValidationError(
-            "payment amount must be greater than 0".to_string(),
-        ));
-    }
-
-    ensure_wallet_exists(tx, seller_id).await?;
-
-    let updated_wallet = sqlx::query(
-        r#"
-        UPDATE wallets
-        SET balance = balance + $2,
-            updated_at = CURRENT_TIMESTAMP
-        WHERE user_id = $1
-        RETURNING balance
-        "#,
-    )
-    .bind(seller_id)
-    .bind(amount)
-    .fetch_one(&mut **tx)
-    .await?;
-
-    let balance_after: i64 = updated_wallet.try_get("balance")?;
-
-    sqlx::query(
-        r#"
-        INSERT INTO wallet_transactions (
-            wallet_id,
-            type,
-            status,
-            amount,
-            balance_after,
-            reference_id,
-            reference_type,
-            description,
-            completed_at
-        )
-        VALUES (
-            $1,
-            'PAYMENT_RECEIVED'::transaction_type,
-            'COMPLETED'::transaction_status,
-            $2,
-            $3,
-            $4,
-            'auction'::reference_type,
-            $5,
-            CURRENT_TIMESTAMP
-        )
-        "#,
-    )
-    .bind(seller_id)
-    .bind(amount)
-    .bind(balance_after)
-    .bind(auction_id)
-    .bind(format!("Payment received from auction {}", auction_id))
-    .execute(&mut **tx)
-    .await?;
-
-    Ok(())
+    credit_auction_payment(tx, seller_id, auction_id, amount)
+        .await
+        .map_err(map_wallet_ledger_error)
 }
 
 async fn finalize_auction_in_tx(
