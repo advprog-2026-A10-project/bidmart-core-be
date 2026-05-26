@@ -15,6 +15,7 @@ use sqlx::postgres::PgPool;
 pub mod tests;
 
 pub mod controllers;
+pub mod lifecycle;
 pub mod middleware;
 pub mod repositories;
 pub mod services;

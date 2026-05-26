@@ -72,29 +72,37 @@ impl NotificationType {
     pub fn from_db_value(value: &str) -> Option<Self> {
         match value {
             "BID_OUTBID" => Some(Self::BidOutbid),
+            "BID_PLACED" => Some(Self::BidPlaced),
             "AUCTION_WON" => Some(Self::AuctionWon),
+            "WINNER_DETERMINED" => Some(Self::WinnerDetermined),
             "AUCTION_LOST" => Some(Self::AuctionLost),
             "ORDER_SHIPPED" => Some(Self::OrderShipped),
+            "ORDER_UPDATE" => Some(Self::OrderUpdate),
             "ORDER_DELIVERED" => Some(Self::OrderDelivered),
             "PAYMENT_RECEIVED" => Some(Self::PaymentReceived),
             "DISPUTE_OPENED" => Some(Self::DisputeOpened),
             "DISPUTE_RESOLVED" => Some(Self::DisputeResolved),
             "AUCTION_EXTENDED" => Some(Self::AuctionExtended),
+            "SYSTEM" => Some(Self::System),
             _ => None,
         }
     }
 
     pub fn as_db_value(&self) -> &'static str {
         match self {
-            Self::BidOutbid | Self::BidPlaced => "BID_OUTBID",
-            Self::AuctionWon | Self::WinnerDetermined => "AUCTION_WON",
+            Self::BidOutbid => "BID_OUTBID",
+            Self::BidPlaced => "BID_PLACED",
+            Self::AuctionWon => "AUCTION_WON",
+            Self::WinnerDetermined => "WINNER_DETERMINED",
             Self::AuctionLost => "AUCTION_LOST",
-            Self::OrderShipped | Self::OrderUpdate => "ORDER_SHIPPED",
+            Self::OrderShipped => "ORDER_SHIPPED",
+            Self::OrderUpdate => "ORDER_UPDATE",
             Self::OrderDelivered => "ORDER_DELIVERED",
             Self::PaymentReceived => "PAYMENT_RECEIVED",
             Self::DisputeOpened => "DISPUTE_OPENED",
             Self::DisputeResolved => "DISPUTE_RESOLVED",
-            Self::AuctionExtended | Self::System => "AUCTION_EXTENDED",
+            Self::AuctionExtended => "AUCTION_EXTENDED",
+            Self::System => "SYSTEM",
         }
     }
 }

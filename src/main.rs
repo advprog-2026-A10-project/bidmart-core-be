@@ -15,7 +15,8 @@ use modules::bidding::infrastructure::lifecycle::spawn_auto_finalize_worker;
 use modules::bidding::infrastructure::AppState as BiddingAppState;
 use modules::catalog::infrastructure::{create_router as create_catalog_router, AppState};
 use modules::order::{
-    create_router as create_order_router, infrastructure::create_runtime_app_state_with_auth,
+    create_router as create_order_router,
+    infrastructure::{create_runtime_app_state_with_auth, lifecycle::spawn_bidding_event_bridge},
 };
 use modules::wallet::infrastructure::create_router as create_wallet_router;
 
@@ -58,6 +59,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let order_state =
         create_runtime_app_state_with_auth(pool.clone(), config.auth_base_url.clone());
     spawn_auto_finalize_worker(pool.clone(), amqp);
+    spawn_bidding_event_bridge(
+        pool.clone(),
+        order_state.notification_repo.clone(),
+        config.amqp_url.clone(),
+    );
 
     let router = create_catalog_router(catalog_state)
         .merge(create_bidding_router(bidding_state))
