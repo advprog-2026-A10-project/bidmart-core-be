@@ -5,6 +5,7 @@ mod shared;
 use axum::serve;
 use tokio::net::TcpListener;
 
+use infrastructure::amqp::AmqpPublisher;
 use infrastructure::config::AppConfig;
 use infrastructure::database::create_pool;
 use infrastructure::database::migrations::run_pending_migrations;
@@ -29,16 +30,34 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         run_pending_migrations(&pool).await?;
     }
 
+    let amqp = match &config.amqp_url {
+        Some(url) => match AmqpPublisher::connect(url).await {
+            Ok(publisher) => {
+                tracing::info!("AMQP publisher connected");
+                Some(publisher)
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "AMQP connection failed — running without realtime push");
+                None
+            }
+        },
+        None => {
+            tracing::info!("APP_AMQP_URL not set — AMQP publisher disabled");
+            None
+        }
+    };
+
     let catalog_state = AppState::new(
         pool.clone(),
         config.auth_base_url.clone(),
         config.storage.clone(),
     )
     .await?;
-    let bidding_state = BiddingAppState::new(pool.clone(), config.auth_base_url.clone());
+    let bidding_state =
+        BiddingAppState::new(pool.clone(), config.auth_base_url.clone(), amqp.clone());
     let order_state =
         create_runtime_app_state_with_auth(pool.clone(), config.auth_base_url.clone());
-    spawn_auto_finalize_worker(pool.clone());
+    spawn_auto_finalize_worker(pool.clone(), amqp);
 
     let router = create_catalog_router(catalog_state)
         .merge(create_bidding_router(bidding_state))

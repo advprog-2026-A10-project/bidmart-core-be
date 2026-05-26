@@ -2,6 +2,7 @@ use sqlx::postgres::PgPool;
 use std::time::Duration;
 use uuid::Uuid;
 
+use crate::infrastructure::amqp::AmqpPublisher;
 use crate::modules::bidding::domain::errors::BiddingError;
 
 use super::controllers::finalize_auction_as_system;
@@ -62,7 +63,11 @@ async fn close_ended_auctions(pool: &PgPool) -> Result<u64, BiddingError> {
     Ok(affected)
 }
 
-async fn run_auto_finalize_pass(pool: &PgPool, batch_size: i64) -> Result<usize, BiddingError> {
+async fn run_auto_finalize_pass(
+    pool: &PgPool,
+    batch_size: i64,
+    amqp: Option<&AmqpPublisher>,
+) -> Result<usize, BiddingError> {
     match activate_scheduled_auctions(pool).await {
         Ok(0) => {}
         Ok(n) => tracing::info!(activated = n, "scheduled auctions activated"),
@@ -90,7 +95,7 @@ async fn run_auto_finalize_pass(pool: &PgPool, batch_size: i64) -> Result<usize,
 
     let mut finalized_count: usize = 0;
     for auction_id in auction_ids {
-        match finalize_auction_as_system(pool, auction_id).await {
+        match finalize_auction_as_system(pool, auction_id, amqp).await {
             Ok(result) => {
                 finalized_count += 1;
                 tracing::info!(
@@ -116,7 +121,7 @@ async fn run_auto_finalize_pass(pool: &PgPool, batch_size: i64) -> Result<usize,
     Ok(finalized_count)
 }
 
-pub fn spawn_auto_finalize_worker(pool: PgPool) {
+pub fn spawn_auto_finalize_worker(pool: PgPool, amqp: Option<AmqpPublisher>) {
     let interval_secs = parse_env_u64(
         "APP_BIDDING_FINALIZER_INTERVAL_SECS",
         DEFAULT_FINALIZER_INTERVAL_SECS,
@@ -136,7 +141,7 @@ pub fn spawn_auto_finalize_worker(pool: PgPool) {
         let mut ticker = tokio::time::interval(Duration::from_secs(interval_secs));
         loop {
             ticker.tick().await;
-            match run_auto_finalize_pass(&pool, batch_size).await {
+            match run_auto_finalize_pass(&pool, batch_size, amqp.as_ref()).await {
                 Ok(processed) if processed > 0 => {
                     tracing::info!(processed, "bidding auto-finalizer pass completed");
                 }

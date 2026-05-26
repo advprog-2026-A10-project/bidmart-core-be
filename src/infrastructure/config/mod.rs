@@ -11,6 +11,10 @@ pub struct AppConfig {
     pub auth_base_url: String,
     pub auto_migrate_on_startup: bool,
     pub storage: StorageConfig,
+    /// AMQP URL untuk RabbitMQ publisher (opsional).
+    /// Jika tidak di-set, bidding module berjalan tanpa push events.
+    /// Contoh: amqp://bidmart:bidmart123@localhost:5672/
+    pub amqp_url: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -128,6 +132,11 @@ impl AppConfig {
             .to_string(),
         };
 
+        let amqp_url = read_env("APP_AMQP_URL")
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
+
         Ok(AppConfig {
             server_host,
             server_port,
@@ -135,6 +144,7 @@ impl AppConfig {
             auth_base_url,
             auto_migrate_on_startup,
             storage,
+            amqp_url,
         })
     }
 }

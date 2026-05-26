@@ -1022,11 +1022,26 @@ async fn finalize_auction_in_tx(
 pub(crate) async fn finalize_auction_as_system(
     pool: &sqlx::postgres::PgPool,
     auction_id: Uuid,
+    amqp: Option<&crate::infrastructure::amqp::AmqpPublisher>,
 ) -> Result<FinalizeAuctionResponse, BiddingError> {
     let now = Utc::now();
     let mut tx = pool.begin().await?;
     let response = finalize_auction_in_tx(&mut tx, auction_id, None, false, now).await?;
     tx.commit().await?;
+
+    if let Some(publisher) = amqp {
+        publisher.publish(
+            "auction.finalized",
+            serde_json::json!({
+                "auctionId": response.auction_id.to_string(),
+                "status": response.status,
+                "winnerId": response.winner_id.map(|id| id.to_string()),
+                "winnerName": response.winner_name,
+                "finalPrice": response.final_price,
+            }),
+        );
+    }
+
     Ok(response)
 }
 
@@ -1604,6 +1619,21 @@ pub async fn place_bid(
 
     tx.commit().await?;
 
+    if let Some(ref amqp) = state.amqp {
+        amqp.publish(
+            "auction.bid_placed",
+            serde_json::json!({
+                "auctionId": auction_id.to_string(),
+                "currentPrice": effective_current_price,
+                "bidCount": effective_bid_count,
+                "minimumNextBid": effective_current_price.saturating_add(bid_increment),
+                "extended": should_extend,
+                "endsAt": next_ends_at.to_rfc3339(),
+                "extensionCount": next_extension_count,
+            }),
+        );
+    }
+
     Ok(Json(PlaceBidResponse {
         bid_id,
         auction_id,
@@ -1832,6 +1862,20 @@ pub async fn finalize_auction(
     let mut tx = state.pool.begin().await?;
     let response = finalize_auction_in_tx(&mut tx, auction_id, Some(user.id), force, now).await?;
     tx.commit().await?;
+
+    if let Some(ref amqp) = state.amqp {
+        amqp.publish(
+            "auction.finalized",
+            serde_json::json!({
+                "auctionId": response.auction_id.to_string(),
+                "status": response.status,
+                "winnerId": response.winner_id.map(|id| id.to_string()),
+                "winnerName": response.winner_name,
+                "finalPrice": response.final_price,
+            }),
+        );
+    }
+
     Ok(Json(response))
 }
 

@@ -9,6 +9,7 @@ use axum::{
 use reqwest::Client;
 use sqlx::postgres::PgPool;
 
+use crate::infrastructure::amqp::AmqpPublisher;
 use controllers::{
     disable_my_proxy_bid, finalize_auction, get_auction_detail, get_auction_history,
     get_my_bid_detail, get_my_proxy_bid, list_my_bids, place_bid, upsert_my_proxy_bid,
@@ -19,14 +20,16 @@ pub struct AppState {
     pub pool: PgPool,
     pub auth_base_url: String,
     pub auth_http_client: Client,
+    pub amqp: Option<AmqpPublisher>,
 }
 
 impl AppState {
-    pub fn new(pool: PgPool, auth_base_url: String) -> Self {
+    pub fn new(pool: PgPool, auth_base_url: String, amqp: Option<AmqpPublisher>) -> Self {
         Self {
             pool,
             auth_base_url,
             auth_http_client: Client::new(),
+            amqp,
         }
     }
 }
