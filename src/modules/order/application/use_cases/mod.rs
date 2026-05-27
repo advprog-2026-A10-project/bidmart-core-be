@@ -8,6 +8,9 @@ pub mod mark_notification;
 pub mod publish_event;
 pub mod update_shipping;
 
+#[cfg(test)]
+pub(crate) mod tests;
+
 pub use confirm_order::ConfirmOrderUseCase;
 pub use create_dispute::CreateDisputeUseCase;
 pub use get_notification::GetNotificationUseCase;

@@ -1,6 +1,11 @@
 pub mod controllers;
 pub mod lifecycle;
 pub mod middleware;
+pub mod repositories;
+pub mod services;
+
+#[cfg(test)]
+pub mod tests;
 
 use axum::{
     middleware::{from_fn, from_fn_with_state},

@@ -6,6 +6,9 @@ pub mod internal_usecases;
 pub mod topup_withdraw_usecases;
 pub mod transactions_usecase;
 
+#[cfg(test)]
+pub(crate) mod tests;
+
 pub struct WalletUseCases {
     repo: Arc<dyn WalletRepository>,
 }

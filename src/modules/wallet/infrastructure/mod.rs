@@ -3,6 +3,9 @@ pub mod middleware;
 pub mod repositories;
 pub mod services;
 
+#[cfg(test)]
+pub mod tests;
+
 use std::sync::Arc;
 
 use axum::{

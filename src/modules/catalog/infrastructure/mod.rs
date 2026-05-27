@@ -11,6 +11,9 @@ pub mod middleware;
 pub mod repositories;
 pub mod services;
 
+#[cfg(test)]
+pub mod tests;
+
 use controllers::{buyer_controller, category_controller, internal_controller, seller_controller};
 use repositories::{
     PostgresAuctionLifecycleRepository, PostgresCategoryRepository, PostgresListingImageRepository,
