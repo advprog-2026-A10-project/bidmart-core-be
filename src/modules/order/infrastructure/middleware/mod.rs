@@ -1,12 +1,12 @@
 use axum::async_trait;
 use axum::extract::{FromRequestParts, Request};
-use axum::http::{HeaderMap, HeaderValue, StatusCode, request::Parts};
+use axum::http::{request::Parts, HeaderMap, HeaderValue, StatusCode};
 use axum::middleware::Next;
 use axum::response::Response;
 use std::time::Instant;
 use uuid::Uuid;
 
-use crate::infrastructure::auth::{AuthValidationError, validate_session_with_auth_service};
+use crate::infrastructure::auth::{validate_session_with_auth_service, AuthValidationError};
 use crate::modules::order::infrastructure::AppState;
 
 const MODULE: &str = "order";

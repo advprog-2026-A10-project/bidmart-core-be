@@ -1,4 +1,4 @@
-use super::{ProxyCapability, compute_minimum_proxy_amount, sort_proxy_capabilities};
+use super::{compute_minimum_proxy_amount, sort_proxy_capabilities, ProxyCapability};
 use chrono::{TimeZone, Utc};
 use uuid::Uuid;
 

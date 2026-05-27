@@ -1,10 +1,10 @@
-use axum::{Json, Router, extract::State, http::StatusCode, response::IntoResponse, routing::post};
+use axum::{extract::State, http::StatusCode, response::IntoResponse, routing::post, Json, Router};
 
 use crate::modules::order::application::dto::PublishEventDto;
 use crate::modules::order::application::use_cases::PublishEventUseCase;
 use crate::modules::order::domain::entities::NotificationEventPayload;
-use crate::modules::order::infrastructure::AppState;
 use crate::modules::order::infrastructure::middleware::InternalAuth;
+use crate::modules::order::infrastructure::AppState;
 
 pub fn router() -> Router<AppState> {
     Router::new().route("/events/notifications", post(publish_event))

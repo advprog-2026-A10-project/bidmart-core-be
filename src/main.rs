@@ -2,6 +2,7 @@ mod infrastructure;
 mod modules;
 mod shared;
 
+use axum::middleware;
 use axum::serve;
 use tokio::net::TcpListener;
 
@@ -10,6 +11,7 @@ use infrastructure::config::AppConfig;
 use infrastructure::database::create_pool;
 use infrastructure::database::migrations::run_pending_migrations;
 use infrastructure::logger::init_tracer;
+use infrastructure::logger::request_trace_middleware;
 use modules::bidding::create_router as create_bidding_router;
 use modules::bidding::infrastructure::lifecycle::spawn_auto_finalize_worker;
 use modules::bidding::infrastructure::AppState as BiddingAppState;
@@ -71,7 +73,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             pool.clone(),
             config.auth_base_url.clone(),
         ))
-        .merge(create_order_router(order_state));
+        .merge(create_order_router(order_state))
+        .layer(middleware::from_fn(request_trace_middleware));
 
     let address = format!("{}:{}", config.server_host, config.server_port);
     let listener = TcpListener::bind(&address).await?;
