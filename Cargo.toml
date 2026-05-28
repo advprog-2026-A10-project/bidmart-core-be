@@ -7,7 +7,7 @@ default-run = "bidmart-core-be"
 
 [dependencies]
 axum = { version = "0.7", features = ["macros"] }
-tower = "0.4"
+tower = "0.5"
 tower-http = { version = "0.5", features = ["cors", "trace"] }
 
 tokio = { version = "1", features = ["full"] }
@@ -44,7 +44,7 @@ aws-sdk-s3 = { version = "1", features = ["rt-tokio"] }
 aws-credential-types = "1"
 
 [dev-dependencies]
-tower = { version = "0.4", features = ["util"] }
+tower = { version = "0.5", features = ["util"] }
 axum = "0.7"
 
 tokio-test = "0.4"
