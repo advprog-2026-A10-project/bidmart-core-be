@@ -99,7 +99,7 @@ jobs:
 
       - name: Deploy on EC2 via SSH
         if: steps.deploy_gate.outputs.should_deploy == 'true'
-        uses: appleboy/ssh-action@v1.2.0
+        uses: appleboy/ssh-action@v1.2.5
         with:
           host: ${{ env.EC2_HOST }}
           username: ${{ env.EC2_USER }}
