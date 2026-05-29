@@ -162,9 +162,31 @@ async fn mark_as_read(
         Err(_) => return (StatusCode::BAD_REQUEST, "Invalid notification id").into_response(),
     };
 
+    let actor_id = actor_id.expect("checked actor id exists");
+    let guard_use_case = GetNotificationUseCase::new(state.notification_repo.clone());
+    match guard_use_case
+        .execute(GetNotificationDto { notification_id })
+        .await
+    {
+        Ok(notification) => {
+            let owner = notification
+                .metadata
+                .as_ref()
+                .and_then(|metadata| metadata.get("userId"))
+                .and_then(|value| value.as_str());
+
+            if owner != Some(actor_id.as_str()) {
+                return (StatusCode::FORBIDDEN, "Forbidden").into_response();
+            }
+        }
+        Err(error) => {
+            return map_notification_error(error, "Unable to load notification").into_response();
+        }
+    }
+
     let dto = MarkNotificationDto {
         notification_id,
-        actor_id: actor_id.expect("checked actor id exists"),
+        actor_id,
     };
     let use_case = MarkNotificationUseCase::new(state.notification_repo.clone());
 
