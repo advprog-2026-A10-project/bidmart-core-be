@@ -84,6 +84,8 @@ ON notifications(user_id, is_read, created_at DESC);
 | notifications_unread | 50 | 0 | 58.260 | 56.545 | 67.101 | 80.587 | 1.000 |
 | notification_detail | 50 | 0 | 55.537 | 55.016 | 64.072 | 69.285 | 1.000 |
 
+![alt text](<../images/Screenshot 2026-05-30 022445.png>)
+
 ## After Database Findings
 
 - Slowest API p95: `notifications_all` at `97.056 ms`.
