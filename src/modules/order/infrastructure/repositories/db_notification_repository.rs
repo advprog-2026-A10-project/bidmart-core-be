@@ -1,6 +1,6 @@
 use anyhow::anyhow;
 use chrono::{DateTime, Utc};
-use sqlx::{PgPool, Row, postgres::PgRow};
+use sqlx::{postgres::PgRow, PgPool, Row};
 use uuid::Uuid;
 
 use crate::modules::order::domain::entities::{
@@ -37,30 +37,102 @@ impl NotificationRepository for DbNotificationRepository {
         };
         let capped_limit = limit.map(i64::from).unwrap_or(50).min(200);
 
-        let rows = sqlx::query(
-            r#"
-            SELECT
-                id,
-                user_id,
-                type::text AS type_text,
-                title,
-                message,
-                reference_id,
-                reference_type::text AS reference_type_text,
-                created_at,
-                read_at
-            FROM notifications
-            WHERE ($1::uuid IS NULL OR user_id = $1)
-              AND ($2::boolean = FALSE OR is_read = FALSE)
-            ORDER BY created_at DESC
-            LIMIT $3
-            "#,
-        )
-        .bind(parsed_user_id)
-        .bind(unread_only)
-        .bind(capped_limit)
-        .fetch_all(&self.pool)
-        .await
+        let rows = match (parsed_user_id, unread_only) {
+            (Some(user_id), true) => {
+                sqlx::query(
+                    r#"
+                    SELECT
+                        id,
+                        user_id,
+                        type::text AS type_text,
+                        title,
+                        message,
+                        reference_id,
+                        reference_type::text AS reference_type_text,
+                        created_at,
+                        read_at
+                    FROM notifications
+                    WHERE user_id = $1
+                      AND is_read = FALSE
+                    ORDER BY created_at DESC
+                    LIMIT $2
+                    "#,
+                )
+                .bind(user_id)
+                .bind(capped_limit)
+                .fetch_all(&self.pool)
+                .await
+            }
+            (Some(user_id), false) => {
+                sqlx::query(
+                    r#"
+                    SELECT
+                        id,
+                        user_id,
+                        type::text AS type_text,
+                        title,
+                        message,
+                        reference_id,
+                        reference_type::text AS reference_type_text,
+                        created_at,
+                        read_at
+                    FROM notifications
+                    WHERE user_id = $1
+                    ORDER BY created_at DESC
+                    LIMIT $2
+                    "#,
+                )
+                .bind(user_id)
+                .bind(capped_limit)
+                .fetch_all(&self.pool)
+                .await
+            }
+            (None, true) => {
+                sqlx::query(
+                    r#"
+                    SELECT
+                        id,
+                        user_id,
+                        type::text AS type_text,
+                        title,
+                        message,
+                        reference_id,
+                        reference_type::text AS reference_type_text,
+                        created_at,
+                        read_at
+                    FROM notifications
+                    WHERE is_read = FALSE
+                    ORDER BY created_at DESC
+                    LIMIT $1
+                    "#,
+                )
+                .bind(capped_limit)
+                .fetch_all(&self.pool)
+                .await
+            }
+            (None, false) => {
+                sqlx::query(
+                    r#"
+                    SELECT
+                        id,
+                        user_id,
+                        type::text AS type_text,
+                        title,
+                        message,
+                        reference_id,
+                        reference_type::text AS reference_type_text,
+                        created_at,
+                        read_at
+                    FROM notifications
+                    ORDER BY created_at DESC
+                    LIMIT $1
+                    "#,
+                )
+                .bind(capped_limit)
+                .fetch_all(&self.pool)
+                .await
+            }
+        }
         .map_err(|error| NotificationError::Database(error.into()))?;
 
         rows.into_iter().map(map_row_to_notification).collect()
